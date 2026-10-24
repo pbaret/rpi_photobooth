@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "A local, touch-first photobooth application."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["flask>=3.1,<4"]
+dependencies = ["flask>=3.1,<4", "pillow>=11,<13"]
 
 [dependency-groups]
 dev = ["pyright>=1.1.400", "pytest>=8"]

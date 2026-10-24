@@ -38,12 +38,22 @@ part of returning to booth-ready mode.
 
 ## 3. Synthetic backend
 
-`SyntheticCameraBackend` uses no physical device or external process. It
-produces valid, deterministic image data for preview and capture and follows
-the same observable start/stop and capture contract as the hardware backends.
-Repeated start and stop calls are safe. It is used for automated tests and
-hardware-free UI development; tests must not depend on timing sleeps or image
-content that changes nondeterministically.
+`SyntheticCameraBackend` uses no physical device or external process. Pillow
+renders a fixed 640-by-480 RGB scene and encodes it as JPEG for both preview
+and still capture. The scene's pixels are deterministic: repeated preview
+frames and captures depict the same content, with no clock, randomness, or
+external input. JPEG bytes are guaranteed to decode as JPEG, but their exact
+byte sequence is not an API guarantee across Pillow or encoder versions.
+
+The backend follows the observable `CameraBackend` lifecycle: repeated start
+and stop are safe, preview requires a started backend, and capture writes a
+JPEG to the caller's path then leaves the backend stopped for review. Calls on
+one instance are serialized. It is intended for automated tests and
+hardware-free UI development; tests must not depend on timing sleeps or
+nondeterministic image content. Unlike real hardware, it does not exercise
+device acquisition, sensor output, autofocus, exposure, camera contention, or
+hardware-specific failures. Pillow is isolated to this backend and shared
+image-validation boundaries.
 
 ## 4. Rpicam backend
 
