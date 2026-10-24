@@ -16,8 +16,11 @@ Raspberry Pi-specific objects through the camera contract.
 `start()` and `stop()` are idempotent. Stopping an already stopped backend is
 valid. Operations that require a started backend report a domain-level
 unavailable or operation failure rather than leaking implementation errors.
-Exact method signatures and exception types are settled with the camera
-contract, while preserving these observable behaviors.
+The typed signatures and caller-visible exception classes are defined by
+`photobooth.camera.CameraBackend`, `CameraUnavailableError`, and
+`CameraOperationError`. The contract returns JPEG bytes for a preview frame
+and writes a JPEG still to the caller-provided temporary path; capture leaves
+the backend stopped for review.
 
 ## 2. OpenCV backend
 
