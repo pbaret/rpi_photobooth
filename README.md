@@ -8,9 +8,10 @@ Install the project and its development tools with uv:
 
     uv sync
 
-Run the application locally:
+Run the application locally (startup settings can be supplied with
+`PHOTOBOOTH_*` environment variables):
 
-    uv run flask --app photobooth.app:create_app run
+    uv run python -m photobooth
 
 Run the automated checks:
 

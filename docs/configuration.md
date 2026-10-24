@@ -68,6 +68,14 @@ configuration.
 The implementation must document every setting whose precedence differs from
 this general rule.
 
+The initial implementation loads defaults, then overrides booth settings from
+`data/config.json`, and finally applies environment variables to startup
+settings only. `PHOTOBOOTH_DATA_ROOT` selects the data root used to locate the
+default JSON file. The supported startup variables are `PHOTOBOOTH_BIND_HOST`,
+`PHOTOBOOTH_PORT`, `PHOTOBOOTH_DEBUG`, `PHOTOBOOTH_CAMERA_BACKEND`,
+`PHOTOBOOTH_DATA_ROOT` and `PHOTOBOOTH_ADMIN_SECRET`. The admin secret is never
+part of the JSON schema.
+
 ---
 
 ## 5. Configuration categories
@@ -914,3 +922,25 @@ A setting belongs in application configuration only when:
 
 Backend-specific diagnostic details may remain backend internals instead of
 becoming user configuration.
+
+## 36. Initial implementation behavior
+
+The typed configuration boundary currently implements startup settings for
+bind host, port, debug mode, data root, camera backend and the optional admin
+secret. Runtime JSON settings are booth name, countdown, idle timeout,
+slideshow enabled and slideshow interval. Unsupported or unknown JSON keys are
+rejected rather than silently ignored.
+
+Startup settings are read when the Flask application is created and require an
+application restart to change their effective values. Booth settings are
+persisted separately and do not require a camera restart; an external edit to
+the JSON file is picked up on the next application start. A future admin
+workflow must publish a changed in-memory value only after its atomic save
+succeeds.
+
+Saving writes a validated complete JSON document to a temporary file beside
+the destination, flushes it, then replaces the destination atomically. A
+failed save leaves the prior destination intact. Invalid JSON, wrong value
+types, unknown settings and out-of-range values raise a configuration error;
+the invalid source file is preserved. A missing file uses defaults and is not
+created until settings are explicitly saved.
