@@ -1,0 +1,1 @@
+"""HTTP adapter blueprints for the photobooth application."""

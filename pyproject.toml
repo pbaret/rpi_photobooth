@@ -1,0 +1,22 @@
+[build-system]
+requires = ["uv_build>=0.13.5,<0.14"]
+build-backend = "uv_build"
+
+[project]
+name = "photobooth"
+version = "0.1.0"
+description = "A local, touch-first photobooth application."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["flask>=3.1,<4"]
+
+[dependency-groups]
+dev = ["pyright>=1.1.400", "pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.11"
+typeCheckingMode = "strict"
