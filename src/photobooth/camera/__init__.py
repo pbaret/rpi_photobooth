@@ -6,6 +6,7 @@ from photobooth.camera.contract import (
     CameraOperationError,
     CameraUnavailableError,
 )
+from photobooth.camera.opencv import OpenCVCameraBackend
 from photobooth.camera.synthetic import SyntheticCameraBackend
 
 __all__ = [
@@ -13,5 +14,6 @@ __all__ = [
     "CameraError",
     "CameraOperationError",
     "CameraUnavailableError",
+    "OpenCVCameraBackend",
     "SyntheticCameraBackend",
 ]

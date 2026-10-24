@@ -26,15 +26,33 @@ the backend stopped for review.
 
 `OpenCVCameraBackend` owns its `VideoCapture` instance from successful open
 until release. Importing the module does not open a webcam. `start()` opens the
-configured device and reports unavailability if it cannot be opened. Preview
-frame reads and capture use the same device and are serialized so they cannot
-concurrently operate on `VideoCapture`.
+configured device (webcam index 0 by default) and reports
+`CameraUnavailableError` when the device is unavailable or busy. Preview frame
+reads and capture use the same device and are serialized by one backend lock,
+so they cannot concurrently operate on `VideoCapture`. The backend owns the
+handle; `stop()` and successful capture release it. Start and stop are
+idempotent, and failed startup, reads, encoding or writes attempt cleanup.
+
+The default requested resolution is 640-by-480. Drivers may select a
+different mode; `requested_resolution` reports the requested dimensions, and
+`effective_resolution` reports the dimensions returned by the driver while
+started (or `None` while stopped). A rejected request is not itself an error.
+Preview frames are horizontally mirrored to provide a natural selfie view.
+Captured stills are encoded from the raw, unmirrored frame so the saved image
+preserves the camera's orientation. OpenCV does not create GUI windows; the
+browser presents preview frames.
 
 `stop()` releases the device and clears the backend's active state. It is safe
 to call repeatedly. If a read, capture, or device open fails, the backend
 returns a documented camera failure; cleanup releases any acquired handle.
 Returning from review or recovering from ERROR starts the backend again as
 part of returning to booth-ready mode.
+
+To check webcam index 0 manually on a development computer, run
+`uv run python scripts/diagnose_opencv_camera.py`. The diagnostic acquires the
+device, prints requested and effective dimensions, reads and encodes one
+preview frame, then releases the camera. It requires a locally available
+webcam and is not part of automated tests.
 
 ## 3. Synthetic backend
 
