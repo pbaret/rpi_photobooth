@@ -1,20 +1,194 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Photobooth</title>
+    <title>{{ booth_name }}</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: system-ui, sans-serif;
+        background: #171a18;
+        color: #f5f6f3;
+      }
+
+      * { box-sizing: border-box; }
+
+      html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+
+      body { min-height: 100dvh; }
+
+      .booth {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        height: 100dvh;
+        padding: max(12px, env(safe-area-inset-top)) 16px
+          max(12px, env(safe-area-inset-bottom));
+        gap: 12px;
+      }
+
+      header { flex: 0 0 auto; text-align: center; }
+      h1 { margin: 0; font-size: 1.25rem; }
+
+      .preview {
+        position: relative;
+        display: grid;
+        flex: 1 1 auto;
+        min-height: 0;
+        place-items: center;
+        overflow: hidden;
+        background: #050605;
+      }
+
+      .preview img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+
+      .shade {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        padding: 20px;
+        background: rgb(0 0 0 / 58%);
+        text-align: center;
+      }
+
+      .shade[hidden], [hidden] { display: none; }
+
+      .countdown-value {
+        display: block;
+        font-size: clamp(5rem, 20vh, 12rem);
+        font-weight: 700;
+        line-height: 1;
+      }
+
+      .state-label { margin: 12px 0 0; font-size: 1.5rem; }
+
+      footer {
+        display: grid;
+        flex: 0 0 auto;
+        min-height: 64px;
+        place-items: center;
+      }
+
+      button {
+        min-width: min(100%, 320px);
+        min-height: 56px;
+        padding: 12px 24px;
+        border: 0;
+        border-radius: 4px;
+        background: #f1c84b;
+        color: #171a18;
+        font: inherit;
+        font-size: 1.2rem;
+        font-weight: 700;
+        cursor: pointer;
+        touch-action: manipulation;
+      }
+
+      button:disabled { cursor: wait; opacity: 0.7; }
+      button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+
+      .error-panel {
+        display: grid;
+        gap: 12px;
+        justify-items: center;
+        text-align: center;
+      }
+
+      .error-panel p { margin: 0; font-size: 1.1rem; }
+
+      @media (orientation: landscape) {
+        .booth { padding-left: 24px; padding-right: 24px; }
+        header { text-align: left; }
+        footer { min-height: 72px; }
+      }
+    </style>
   </head>
   <body>
-    <main>
-      <h1>Photobooth</h1>
-      <img
-        src="{{ url_for('booth.preview') }}"
-        alt="Live camera preview"
-        width="640"
-        height="480"
-        style="display: block; width: min(100%, 640px); height: auto; background: #111;"
-      >
+    <main class="booth" id="booth" data-state="idle" data-countdown-seconds="{{ countdown_seconds }}">
+      <header><h1>{{ booth_name }}</h1></header>
+      <section class="preview" aria-label="Aperçu caméra">
+        <img id="preview" src="{{ url_for('booth.preview') }}" alt="Aperçu caméra en direct">
+        <div class="shade" id="countdown-panel" hidden>
+          <div>
+            <output class="countdown-value" id="countdown-value" aria-live="assertive">3</output>
+            <p class="state-label">Préparez-vous</p>
+          </div>
+        </div>
+        <div class="shade" id="capturing-panel" hidden>
+          <p class="state-label" role="status">Prise de vue en cours...</p>
+        </div>
+        <div class="shade" id="error-panel" hidden>
+          <div class="error-panel">
+            <p role="alert">La prise de vue n'a pas pu aboutir.</p>
+            <button id="return-button" type="button">Retour</button>
+          </div>
+        </div>
+      </section>
+      <footer>
+        <button id="capture-button" type="button">Prendre une photo</button>
+        <p id="state-message" role="status" hidden></p>
+      </footer>
     </main>
+    <script>
+      const booth = document.getElementById("booth");
+      const preview = document.getElementById("preview");
+      const captureButton = document.getElementById("capture-button");
+      const returnButton = document.getElementById("return-button");
+      const countdownPanel = document.getElementById("countdown-panel");
+      const countdownValue = document.getElementById("countdown-value");
+      const capturingPanel = document.getElementById("capturing-panel");
+      const errorPanel = document.getElementById("error-panel");
+      const countdownSeconds = Number(booth.dataset.countdownSeconds);
+
+      function setState(state) {
+        booth.dataset.state = state;
+        countdownPanel.hidden = state !== "countdown";
+        capturingPanel.hidden = state !== "capturing";
+        errorPanel.hidden = state !== "error";
+        captureButton.hidden = state !== "idle";
+        captureButton.disabled = state !== "idle";
+      }
+
+      function wait(milliseconds) {
+        return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+      }
+
+      function resumePreview() {
+        preview.src = "{{ url_for('booth.preview') }}?refresh=" + Date.now();
+      }
+
+      async function startCapture() {
+        setState("countdown");
+        const request = fetch("{{ url_for('booth.capture') }}", { method: "POST" });
+        for (let remaining = countdownSeconds; remaining > 0; remaining -= 1) {
+          countdownValue.value = String(remaining);
+          countdownValue.textContent = String(remaining);
+          await wait(1000);
+        }
+        setState("capturing");
+        try {
+          const response = await request;
+          if (!response.ok) throw new Error("capture failed");
+          setState("idle");
+          resumePreview();
+        } catch {
+          setState("error");
+        }
+      }
+
+      captureButton.addEventListener("click", () => { void startCapture(); });
+      returnButton.addEventListener("click", () => {
+        setState("idle");
+        resumePreview();
+      });
+      setState("idle");
+    </script>
   </body>
 </html>

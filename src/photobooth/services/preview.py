@@ -6,13 +6,20 @@ and keeps the latest immutable JPEG available to concurrent subscribers.
 """
 
 from collections.abc import Iterator
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from threading import Condition, Thread
+from time import sleep
 
 from photobooth.camera.contract import (
     CameraBackend,
     CameraError,
     CameraUnavailableError,
 )
+
+
+class CaptureInProgressError(Exception):
+    """Report that another capture workflow already owns the camera."""
 
 
 class PreviewService:
@@ -34,6 +41,8 @@ class PreviewService:
         self._subscribers = 0
         self._worker: Thread | None = None
         self._camera_started = False
+        self._capturing = False
+        self._capture_started = False
         self._error: CameraError | None = None
         self._closed = False
 
@@ -47,6 +56,8 @@ class PreviewService:
         with self._condition:
             if self._closed:
                 raise CameraUnavailableError("preview service is closed")
+            if self._capture_started:
+                raise CameraUnavailableError("camera capture is in progress")
             start_worker = self._worker is None
             if start_worker:
                 if self._subscribers > 0 and self._error is not None:
@@ -76,6 +87,49 @@ class PreviewService:
                 self._worker.start()
             return PreviewSubscription(self, self._generation - 1)
 
+    def capture(self, countdown_seconds: int) -> None:
+        """Reserve the camera, wait through the countdown, and capture a still.
+
+        The reservation rejects simultaneous capture requests. Existing
+        preview subscribers are ended after the countdown, and the producer
+        is joined before the backend is restarted for its exclusive capture.
+        Still output is temporary and is discarded when this operation ends;
+        callers receive only success or a camera-domain error.
+        """
+        with self._condition:
+            if self._closed:
+                raise CameraUnavailableError("preview service is closed")
+            if self._capturing:
+                raise CaptureInProgressError("a capture is already in progress")
+            self._capturing = True
+        try:
+            sleep(countdown_seconds)
+            with self._condition:
+                self._capture_started = True
+                self._condition.notify_all()
+                worker = self._worker
+            if worker is not None:
+                worker.join()
+            with TemporaryDirectory(prefix="photobooth-capture-") as directory:
+                with self._condition:
+                    if self._closed:
+                        raise CameraUnavailableError("preview service is closed")
+                    if self._camera_started:
+                        self._camera.stop()
+                        self._camera_started = False
+                    self._camera.start()
+                    self._camera_started = True
+                try:
+                    self._camera.capture(Path(directory) / "capture.jpg")
+                finally:
+                    with self._condition:
+                        self._camera_started = False
+        finally:
+            with self._condition:
+                self._capture_started = False
+                self._capturing = False
+                self._condition.notify_all()
+
     def close(self) -> None:
         """Stop production, wait for its camera call, and release the backend.
 
@@ -90,6 +144,8 @@ class PreviewService:
         if worker is not None:
             worker.join()
         with self._condition:
+            while self._capturing:
+                self._condition.wait()
             if self._camera_started:
                 self._camera.stop()
                 self._camera_started = False
@@ -101,9 +157,10 @@ class PreviewService:
                 last_generation == self._generation
                 and self._error is None
                 and not self._closed
+                and not self._capture_started
             ):
                 self._condition.wait()
-            if self._error is not None or self._closed:
+            if self._error is not None or self._closed or self._capture_started:
                 return None
             if self._latest_frame is None:
                 return None
@@ -121,7 +178,7 @@ class PreviewService:
         try:
             while True:
                 with self._condition:
-                    if self._closed or self._subscribers == 0:
+                    if self._closed or self._capture_started or self._subscribers == 0:
                         break
                 try:
                     frame = self._camera.preview_frame()

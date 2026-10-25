@@ -3,10 +3,15 @@
 from collections.abc import Iterator
 from typing import cast
 
-from flask import Blueprint, Response, current_app, render_template
+from flask import Blueprint, Response, current_app, jsonify, render_template
 
 from photobooth.camera.contract import CameraError
-from photobooth.services.preview import PreviewService, PreviewSubscription
+from photobooth.config import ApplicationConfig
+from photobooth.services.preview import (
+    CaptureInProgressError,
+    PreviewService,
+    PreviewSubscription,
+)
 
 booth_blueprint = Blueprint("booth", __name__)
 
@@ -14,7 +19,30 @@ booth_blueprint = Blueprint("booth", __name__)
 @booth_blueprint.get("/")
 def index() -> str:
     """Render the booth screen; the embedded image opens preview on demand."""
-    return render_template("booth/index.html")
+    configuration = cast(
+        ApplicationConfig, current_app.extensions["photobooth.configuration"]
+    )
+    return render_template(
+        "booth/index.html",
+        countdown_seconds=configuration.booth.countdown_seconds,
+        booth_name=configuration.booth.booth_name,
+    )
+
+
+@booth_blueprint.post("/capture")
+def capture() -> Response | tuple[Response, int]:
+    """Run one serialized capture workflow without exposing camera details."""
+    configuration = cast(
+        ApplicationConfig, current_app.extensions["photobooth.configuration"]
+    )
+    service = cast(PreviewService, current_app.extensions["photobooth.preview"])
+    try:
+        service.capture(configuration.booth.countdown_seconds)
+    except CaptureInProgressError:
+        return jsonify(error="capture_in_progress"), 409
+    except CameraError:
+        return jsonify(error="capture_failed"), 503
+    return jsonify(state="idle")
 
 
 @booth_blueprint.get("/preview.mjpg")
