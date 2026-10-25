@@ -8,15 +8,19 @@ from photobooth.config import (
     CameraBackend as CameraBackendKind,
     load_configuration,
 )
+from photobooth.printing import NullPrinterBackend, PrinterBackend
 from photobooth.routes.admin import admin_blueprint
 from photobooth.routes.booth import booth_blueprint
 from photobooth.routes.media import media_blueprint
 from photobooth.services.preview import PreviewService
+from photobooth.services.gallery import GalleryService
 
 
 def create_app(
     configuration: ApplicationConfig | None = None,
     camera_backend: CameraBackend | None = None,
+    gallery_service: GalleryService | None = None,
+    printer_backend: PrinterBackend | None = None,
 ) -> Flask:
     """Build the Flask app, select its camera, and register its HTTP adapters.
 
@@ -31,10 +35,18 @@ def create_app(
         if camera_backend is not None
         else _create_camera_backend(active_configuration.startup.camera_backend)
     )
+    active_gallery = (
+        gallery_service
+        if gallery_service is not None
+        else GalleryService(active_configuration.startup.data_root)
+    )
+    active_printer = printer_backend if printer_backend is not None else NullPrinterBackend()
     app = Flask(__name__)
     app.config["DEBUG"] = active_configuration.startup.debug
     app.extensions["photobooth.configuration"] = active_configuration
-    app.extensions["photobooth.preview"] = PreviewService(active_camera)
+    app.extensions["photobooth.gallery"] = active_gallery
+    app.extensions["photobooth.printer"] = active_printer
+    app.extensions["photobooth.preview"] = PreviewService(active_camera, active_gallery)
     app.register_blueprint(booth_blueprint)
     app.register_blueprint(media_blueprint)
     app.register_blueprint(admin_blueprint)

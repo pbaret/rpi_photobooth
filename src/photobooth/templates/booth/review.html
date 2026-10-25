@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Vérifier la photo</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: system-ui, sans-serif;
+        background: #171a18;
+        color: #f5f6f3;
+      }
+
+      * { box-sizing: border-box; }
+      html, body { width: 100%; min-height: 100%; margin: 0; }
+      body { min-height: 100dvh; }
+
+      .review {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+        gap: 12px;
+        width: 100%;
+        min-height: 100dvh;
+        padding: max(12px, env(safe-area-inset-top)) 16px
+          max(12px, env(safe-area-inset-bottom));
+      }
+
+      header { text-align: center; }
+      h1 { margin: 0; font-size: 1.25rem; }
+      .photo-frame {
+        display: grid;
+        min-height: 0;
+        place-items: center;
+        overflow: hidden;
+        background: #050605;
+      }
+      .photo-frame img { display: block; width: 100%; height: 100%; object-fit: contain; }
+      .qr-reservation {
+        display: grid;
+        min-height: 76px;
+        place-items: center;
+        border: 1px dashed #8e958f;
+        color: #c2c8c1;
+      }
+      .qr-reservation p { margin: 0; }
+      .status { min-height: 1.5em; margin: 0; text-align: center; }
+      .actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+      .actions form { min-width: 0; }
+      button {
+        min-width: 0;
+        min-height: 58px;
+        padding: 10px 8px;
+        border: 0;
+        border-radius: 4px;
+        background: #f1c84b;
+        color: #171a18;
+        font: inherit;
+        font-size: 1rem;
+        font-weight: 700;
+        cursor: pointer;
+        touch-action: manipulation;
+      }
+      .actions button { width: 100%; }
+      .delete-button { background: #ef8a76; }
+      button:disabled { cursor: wait; opacity: 0.65; }
+      button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+
+      @media (orientation: landscape) and (min-width: 700px) {
+        .review {
+          grid-template-columns: minmax(0, 1fr) minmax(250px, 30%);
+          grid-template-rows: auto minmax(0, 1fr) auto;
+          padding-left: 24px;
+          padding-right: 24px;
+        }
+        header, .photo-frame { grid-column: 1; }
+        header { text-align: left; }
+        .qr-reservation, .status, .actions { grid-column: 2; }
+        .qr-reservation { grid-row: 1; align-self: end; }
+        .status { grid-row: 2; align-self: end; }
+        .actions { grid-row: 3; grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="review" data-photo-id="{{ photo.photo_id }}">
+      <header><h1>Vérifier la photo</h1></header>
+      <section class="photo-frame" aria-label="Photo capturée">
+        <img src="{{ photo_url }}" alt="Photo capturée">
+      </section>
+      <section class="qr-reservation" aria-label="Espace réservé au QR code">
+        <p>QR</p>
+      </section>
+      <p class="status" role="status" aria-live="polite">
+        {% if print_status == "placeholder" %}Impression non configurée sur cet appareil.{% endif %}
+        {% if print_status == "submitted" %}Demande d'impression envoyée.{% endif %}
+        {% if print_status == "error" %}L'impression n'a pas pu être effectuée.{% endif %}
+      </p>
+      <nav class="actions" aria-label="Actions sur la photo">
+        <form action="{{ url_for('booth.retake', photo_id=photo.photo_id) }}" method="post">
+          <button type="submit">Reprendre</button>
+        </form>
+        <form action="{{ url_for('booth.delete_photo', photo_id=photo.photo_id) }}" method="post"
+          onsubmit="return window.confirm('Supprimer définitivement cette photo ?')">
+          <button class="delete-button" type="submit">Supprimer</button>
+        </form>
+        <form id="print-form" action="{{ url_for('booth.print_photo', photo_id=photo.photo_id) }}" method="post">
+          <button id="print-button" type="submit">Imprimer</button>
+        </form>
+      </nav>
+    </main>
+    <script>
+      const printForm = document.getElementById("print-form");
+      const printButton = document.getElementById("print-button");
+      printForm.addEventListener("submit", () => { printButton.disabled = true; });
+    </script>
+  </body>
+</html>

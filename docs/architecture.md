@@ -611,6 +611,25 @@ Version 1 uses simple local metadata rather than a database server.
 
 Metadata can be stored using JSON files controlled by GalleryService.
 
+The current implementation stores one versioned JSON file per photo below
+`data_root/metadata`, with JPEG originals below `data_root/photos` and
+thumbnails below `data_root/thumbnails`. GalleryService owns ID validation,
+all path derivation, serialization, and persistence. Photo IDs are generated
+using cryptographically unpredictable URL-safe values; HTTP clients never
+provide a path. Missing metadata means the photo is unknown or deleted, while
+malformed metadata is a controlled storage error. The original and thumbnail
+are staged and published before metadata; metadata is the availability marker.
+Deletion removes metadata first, then removes the assets. If cleanup partially
+fails, media routes still cannot resolve the photo, though inaccessible orphan
+files may remain.
+
+Thumbnails are generated from validated JPEG captures with Pillow and share
+the original photo's deletion lifecycle. Retake returns to the booth without
+deleting the reviewed photo or starting a countdown. Development printing uses
+NullPrinterBackend: the review action reports that printing is not configured
+and does not contact a device. CUPS and duplicate physical-job protection are
+deferred to the printer integration milestone.
+
 A metadata entry may include:
 
 - photo identifier;

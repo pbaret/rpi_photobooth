@@ -133,7 +133,7 @@
       </section>
       <footer>
         <button id="capture-button" type="button">Prendre une photo</button>
-        <p id="state-message" role="status" hidden></p>
+        {% if notice %}<p id="state-message" role="status">{{ notice }}</p>{% endif %}
       </footer>
     </main>
     <script>
@@ -176,8 +176,11 @@
         try {
           const response = await request;
           if (!response.ok) throw new Error("capture failed");
-          setState("idle");
-          resumePreview();
+          const result = await response.json();
+          if (typeof result.review_url !== "string" || !result.review_url.startsWith("/review/")) {
+            throw new Error("review URL is invalid");
+          }
+          window.location.assign(result.review_url);
         } catch {
           setState("error");
         }

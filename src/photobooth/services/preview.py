@@ -16,6 +16,7 @@ from photobooth.camera.contract import (
     CameraError,
     CameraUnavailableError,
 )
+from photobooth.services.gallery import GalleryService, PhotoMetadata
 
 
 class CaptureInProgressError(Exception):
@@ -32,9 +33,10 @@ class PreviewService:
     or when the application closes the service.
     """
 
-    def __init__(self, camera: CameraBackend) -> None:
-        """Create a stopped preview service around the app-owned backend."""
+    def __init__(self, camera: CameraBackend, gallery: GalleryService) -> None:
+        """Create a stopped preview service with app-owned camera and gallery."""
         self._camera = camera
+        self._gallery = gallery
         self._condition = Condition()
         self._latest_frame: bytes | None = None
         self._generation = 0
@@ -87,14 +89,15 @@ class PreviewService:
                 self._worker.start()
             return PreviewSubscription(self, self._generation - 1)
 
-    def capture(self, countdown_seconds: int) -> None:
-        """Reserve the camera, wait through the countdown, and capture a still.
+    def capture(self, countdown_seconds: int) -> PhotoMetadata:
+        """Capture a still and hand it to GalleryService for publication.
 
         The reservation rejects simultaneous capture requests. Existing
         preview subscribers are ended after the countdown, and the producer
         is joined before the backend is restarted for its exclusive capture.
-        Still output is temporary and is discarded when this operation ends;
-        callers receive only success or a camera-domain error.
+        The temporary still is validated and persisted by GalleryService before
+        its identifier is returned. Camera and gallery failures still release
+        the temporary capture file and reset the reservation.
         """
         with self._condition:
             if self._closed:
@@ -120,7 +123,9 @@ class PreviewService:
                     self._camera.start()
                     self._camera_started = True
                 try:
-                    self._camera.capture(Path(directory) / "capture.jpg")
+                    capture_path = Path(directory) / "capture.jpg"
+                    self._camera.capture(capture_path)
+                    return self._gallery.register_captured_photo(capture_path)
                 finally:
                     with self._condition:
                         self._camera_started = False

@@ -11,6 +11,7 @@ from photobooth.app import create_app
 from photobooth.camera.contract import CameraOperationError, CameraUnavailableError
 from photobooth.camera.synthetic import SyntheticCameraBackend
 from photobooth.config import ApplicationConfig, BoothSettings, StartupConfig
+from photobooth.services.gallery import GalleryService
 from photobooth.services import preview as preview_module
 from photobooth.services.preview import (
     CaptureInProgressError,
@@ -35,10 +36,10 @@ def test_booth_homepage_renders() -> None:
     assert b"error-panel" in response.data
 
 
-def test_capture_endpoint_captures_and_releases_camera() -> None:
-    """The booth can complete a real backend capture without storing a photo."""
+def test_capture_endpoint_publishes_photo_and_opens_review(tmp_path: Path) -> None:
+    """A successful capture persists its photo and redirects to review."""
     app = create_app(
-        configuration=_zero_countdown_configuration(),
+        configuration=_zero_countdown_configuration(tmp_path),
         camera_backend=SyntheticCameraBackend(),
     )
     client: FlaskClient = app.test_client()
@@ -46,7 +47,17 @@ def test_capture_endpoint_captures_and_releases_camera() -> None:
     response = client.post("/capture")
 
     assert response.status_code == 200
-    assert response.json == {"state": "idle"}
+    payload = response.get_json()
+    assert isinstance(payload, dict)
+    typed_payload = cast(dict[str, object], payload)
+    review_path = typed_payload.get("review_url")
+    assert isinstance(review_path, str)
+    assert review_path.startswith("/review/")
+    review_response = client.get(review_path)
+    assert review_response.status_code == 200
+    assert b"Reprendre" in review_response.data
+    assert b"Supprimer" in review_response.data
+    assert b"Imprimer" in review_response.data
     preview = cast(PreviewService, app.extensions["photobooth.preview"])
     subscription = preview.subscribe()
     assert next(subscription).startswith(b"\xff\xd8")
@@ -54,7 +65,7 @@ def test_capture_endpoint_captures_and_releases_camera() -> None:
     preview.close()
 
 
-def test_capture_endpoint_hides_camera_failure_details() -> None:
+def test_capture_endpoint_hides_camera_failure_details(tmp_path: Path) -> None:
     """A recoverable camera failure returns a generic user-facing error."""
 
     class FailingCaptureBackend(SyntheticCameraBackend):
@@ -65,7 +76,7 @@ def test_capture_endpoint_hides_camera_failure_details() -> None:
             raise CameraOperationError("private camera device detail")
 
     app = create_app(
-        configuration=_zero_countdown_configuration(),
+        configuration=_zero_countdown_configuration(tmp_path),
         camera_backend=FailingCaptureBackend(),
     )
     client: FlaskClient = app.test_client()
@@ -78,7 +89,7 @@ def test_capture_endpoint_hides_camera_failure_details() -> None:
 
 
 def test_capture_service_rejects_concurrent_requests(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """A second workflow is rejected while the first owns the reservation."""
     countdown_started = Event()
@@ -90,7 +101,7 @@ def test_capture_service_rejects_concurrent_requests(
             raise TimeoutError("test countdown was not released")
 
     monkeypatch.setattr(preview_module, "sleep", wait_for_countdown)
-    service = PreviewService(SyntheticCameraBackend())
+    service = PreviewService(SyntheticCameraBackend(), GalleryService(tmp_path))
     subscription = service.subscribe()
     first_frame = next(subscription)
     assert first_frame.startswith(b"\xff\xd8")
@@ -119,10 +130,10 @@ def test_capture_service_rejects_concurrent_requests(
     assert capture_errors == []
 
 
-def _zero_countdown_configuration() -> ApplicationConfig:
+def _zero_countdown_configuration(data_root: Path = Path("data")) -> ApplicationConfig:
     """Use deterministic no-wait settings for capture route tests."""
     return ApplicationConfig(
-        startup=StartupConfig(),
+        startup=StartupConfig(data_root=data_root),
         booth=BoothSettings(countdown_seconds=0),
         config_path=Path("test-config.json"),
     )
