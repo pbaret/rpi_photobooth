@@ -8,8 +8,9 @@ Install the project and its development tools with uv:
 
     uv sync
 
-Run the application locally (startup settings can be supplied with
-`PHOTOBOOTH_*` environment variables):
+Run the application locally. Startup and booth settings are loaded from
+`config.json` in the current working directory; see `config.example.json` for
+the available options:
 
     uv run python -m photobooth
 

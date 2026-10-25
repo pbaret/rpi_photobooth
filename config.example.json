@@ -1,0 +1,17 @@
+{
+  "startup": {
+    "bind_host": "127.0.0.1",
+    "port": 5000,
+    "debug": false,
+    "data_root": "data",
+    "camera_backend": "synthetic",
+    "admin_secret": null
+  },
+  "booth": {
+    "booth_name": "Photobooth",
+    "countdown_seconds": 3,
+    "idle_timeout_seconds": 120,
+    "slideshow_enabled": true,
+    "slideshow_interval_seconds": 5
+  }
+}

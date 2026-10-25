@@ -2,11 +2,11 @@
 
 import json
 import os
-import tempfile
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Mapping, cast
+import tempfile
+from typing import cast
 
 
 class ConfigurationError(ValueError):
@@ -75,42 +75,96 @@ class ApplicationConfig:
 
 def load_configuration(
     config_path: Path | None = None,
-    environ: Mapping[str, str] | None = None,
 ) -> ApplicationConfig:
-    """Load defaults, persisted booth options, then startup environment overrides.
+    """Load validated startup and booth settings from one JSON document.
 
-    The JSON file contains only booth settings. Environment variables configure
-    process-level settings and therefore never overwrite persisted booth values.
-    A missing JSON file is a normal first-run condition and is not created here.
+    A missing file uses application defaults without creating a file. The
+    default path is ``config.json`` in the process working directory.
     """
-    environment = os.environ if environ is None else environ
-    data_root = Path(environment.get("PHOTOBOOTH_DATA_ROOT", "data"))
-    selected_path = config_path or data_root / "config.json"
-    booth = _load_booth_settings(selected_path)
+    selected_path = config_path or Path("config.json")
+    document = _load_json_object(selected_path)
+    legacy_booth_keys = {
+        "booth_name",
+        "countdown_seconds",
+        "idle_timeout_seconds",
+        "slideshow_enabled",
+        "slideshow_interval_seconds",
+    }
+    is_legacy_document = document.keys() <= legacy_booth_keys
+    if not is_legacy_document:
+        unknown_sections = document.keys() - {"startup", "booth"}
+        if unknown_sections:
+            unknown_section = sorted(unknown_sections)[0]
+            raise ConfigurationError(f"unknown configuration section: {unknown_section}")
+    startup_values = _section_values(
+        document,
+        "startup",
+        {
+            "bind_host",
+            "port",
+            "debug",
+            "data_root",
+            "camera_backend",
+            "admin_secret",
+        },
+    )
+    booth_values = _section_values(
+        document,
+        "booth",
+        {
+            "booth_name",
+            "countdown_seconds",
+            "idle_timeout_seconds",
+            "slideshow_enabled",
+            "slideshow_interval_seconds",
+        },
+    )
+    data_root = Path(_string_value(startup_values, "data_root", "data"))
     startup = StartupConfig(
-        bind_host=environment.get("PHOTOBOOTH_BIND_HOST", "127.0.0.1"),
-        port=_environment_int(environment, "PHOTOBOOTH_PORT", 5000),
-        debug=_environment_bool(environment, "PHOTOBOOTH_DEBUG", False),
+        bind_host=_string_value(startup_values, "bind_host", "127.0.0.1"),
+        port=_integer_value(startup_values, "port", 5000),
+        debug=_boolean_value(startup_values, "debug", False),
         data_root=data_root,
-        camera_backend=_environment_camera_backend(environment),
-        admin_secret=environment.get("PHOTOBOOTH_ADMIN_SECRET"),
+        camera_backend=_camera_backend_value(startup_values),
+        admin_secret=_optional_string_value(startup_values, "admin_secret"),
+    )
+    booth = BoothSettings(
+        booth_name=_string_value(booth_values, "booth_name", "Photobooth"),
+        countdown_seconds=_integer_value(booth_values, "countdown_seconds", 3),
+        idle_timeout_seconds=_integer_value(booth_values, "idle_timeout_seconds", 120),
+        slideshow_enabled=_boolean_value(booth_values, "slideshow_enabled", True),
+        slideshow_interval_seconds=_integer_value(
+            booth_values, "slideshow_interval_seconds", 5
+        ),
     )
     return ApplicationConfig(startup=startup, booth=booth, config_path=selected_path)
 
 
 def save_booth_settings(config_path: Path, settings: BoothSettings) -> None:
-    """Atomically persist validated booth settings without storing secrets.
+    """Atomically persist booth settings while retaining startup configuration.
 
     The temporary file is created beside the destination so replacement stays
     on the same filesystem. If writing or replacement fails, the prior file is
-    left intact and the temporary file is removed when possible.
+    left intact and the temporary file is removed when possible. Existing
+    startup settings, including the optional admin secret, are preserved.
     """
+    startup = load_configuration(config_path).startup
     payload = {
-        "booth_name": settings.booth_name,
-        "countdown_seconds": settings.countdown_seconds,
-        "idle_timeout_seconds": settings.idle_timeout_seconds,
-        "slideshow_enabled": settings.slideshow_enabled,
-        "slideshow_interval_seconds": settings.slideshow_interval_seconds,
+        "startup": {
+            "bind_host": startup.bind_host,
+            "port": startup.port,
+            "debug": startup.debug,
+            "data_root": str(startup.data_root),
+            "camera_backend": startup.camera_backend.value,
+            "admin_secret": startup.admin_secret,
+        },
+        "booth": {
+            "booth_name": settings.booth_name,
+            "countdown_seconds": settings.countdown_seconds,
+            "idle_timeout_seconds": settings.idle_timeout_seconds,
+            "slideshow_enabled": settings.slideshow_enabled,
+            "slideshow_interval_seconds": settings.slideshow_interval_seconds,
+        },
     }
     config_path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path: Path | None = None
@@ -134,10 +188,10 @@ def save_booth_settings(config_path: Path, settings: BoothSettings) -> None:
             temporary_path.unlink(missing_ok=True)
 
 
-def _load_booth_settings(config_path: Path) -> BoothSettings:
-    """Decode a booth settings file or return defaults when it is absent."""
+def _load_json_object(config_path: Path) -> dict[str, object]:
+    """Decode a JSON object, treating a missing file as an empty document."""
     if not config_path.exists():
-        return BoothSettings()
+        return {}
     try:
         with config_path.open("r", encoding="utf-8") as config_file:
             decoded: object = json.load(config_file)
@@ -146,33 +200,43 @@ def _load_booth_settings(config_path: Path) -> BoothSettings:
 
     if not isinstance(decoded, dict):
         raise ConfigurationError("configuration file must contain a JSON object")
-    raw_settings = cast(dict[object, object], decoded)
+    raw_values = cast(dict[object, object], decoded)
     values: dict[str, object] = {}
-    for key, value in raw_settings.items():
+    for key, value in raw_values.items():
         if not isinstance(key, str):
             raise ConfigurationError("configuration keys must be strings")
         values[key] = value
+    return values
 
-    supported_keys = {
+
+def _section_values(
+    document: dict[str, object], section_name: str, supported_keys: set[str]
+) -> dict[str, object]:
+    """Validate and return one named object section from the document.
+
+    The prior format stored booth values at the document root; it remains
+    readable so existing installations can move to the new schema gradually.
+    """
+    booth_keys = {
         "booth_name",
         "countdown_seconds",
         "idle_timeout_seconds",
         "slideshow_enabled",
         "slideshow_interval_seconds",
     }
-    unknown_keys = values.keys() - supported_keys
+    if section_name == "booth" and "startup" not in document and "booth" not in document:
+        section = {key: value for key, value in document.items() if key in booth_keys}
+        unknown_keys = document.keys() - booth_keys
+    else:
+        raw_section = document.get(section_name, {})
+        if not isinstance(raw_section, dict):
+            raise ConfigurationError(f"{section_name} configuration must be a JSON object")
+        section = cast(dict[str, object], raw_section)
+        unknown_keys = section.keys() - supported_keys
     if unknown_keys:
         unknown_key = sorted(unknown_keys)[0]
-        raise ConfigurationError(f"unknown configuration setting: {unknown_key}")
-    return BoothSettings(
-        booth_name=_string_value(values, "booth_name", "Photobooth"),
-        countdown_seconds=_integer_value(values, "countdown_seconds", 3),
-        idle_timeout_seconds=_integer_value(values, "idle_timeout_seconds", 120),
-        slideshow_enabled=_boolean_value(values, "slideshow_enabled", True),
-        slideshow_interval_seconds=_integer_value(
-            values, "slideshow_interval_seconds", 5
-        ),
-    )
+        raise ConfigurationError(f"unknown {section_name} configuration setting: {unknown_key}")
+    return section
 
 
 def _string_value(values: dict[str, object], name: str, default: str) -> str:
@@ -199,38 +263,18 @@ def _boolean_value(values: dict[str, object], name: str, default: bool) -> bool:
     return value
 
 
-def _environment_int(
-    environ: Mapping[str, str], name: str, default: int
-) -> int:
-    """Parse an integer environment value with a setting-specific error."""
-    value = environ.get(name)
-    if value is None:
-        return default
-    try:
-        return int(value)
-    except ValueError as error:
-        raise ConfigurationError(f"{name} must be an integer") from error
-
-
-def _environment_bool(
-    environ: Mapping[str, str], name: str, default: bool
-) -> bool:
-    """Parse only the conventional true and false environment spellings."""
-    value = environ.get(name)
-    if value is None:
-        return default
-    normalized = value.strip().lower()
-    if normalized in {"true", "1", "yes"}:
-        return True
-    if normalized in {"false", "0", "no"}:
-        return False
-    raise ConfigurationError(f"{name} must be true or false")
-
-
-def _environment_camera_backend(environ: Mapping[str, str]) -> CameraBackend:
-    """Parse the allowlisted camera backend environment value."""
-    value = environ.get("PHOTOBOOTH_CAMERA_BACKEND", CameraBackend.SYNTHETIC.value)
+def _camera_backend_value(values: dict[str, object]) -> CameraBackend:
+    """Return the allowlisted camera backend selected in startup settings."""
+    value = _string_value(values, "camera_backend", CameraBackend.SYNTHETIC.value)
     try:
         return CameraBackend(value)
     except ValueError as error:
         raise ConfigurationError(f"unknown camera backend: {value}") from error
+
+
+def _optional_string_value(values: dict[str, object], name: str) -> str | None:
+    """Return a string or null optional startup value from JSON."""
+    value = values.get(name)
+    if value is not None and not isinstance(value, str):
+        raise ConfigurationError(f"{name} must be a string or null")
+    return value

@@ -40,9 +40,8 @@ Version 1 does not require:
 Configuration may originate from:
 
 1. application defaults;
-2. environment variables;
-3. local runtime configuration file;
-4. runtime backend capabilities.
+2. local JSON configuration file;
+3. runtime backend capabilities.
 
 Backend capabilities are not technically configuration values, but they affect
 which configured camera values can be used and therefore form part of the
@@ -52,29 +51,12 @@ effective configuration model.
 
 ## 4. Configuration precedence
 
-The intended precedence is:
-
-    application defaults
-            |
-            v
-    persisted booth configuration
-            |
-            v
-    environment/startup overrides where explicitly supported
-
-Secrets are handled separately and are never persisted to editable booth
-configuration.
-
-The implementation must document every setting whose precedence differs from
-this general rule.
-
-The initial implementation loads defaults, then overrides booth settings from
-`data/config.json`, and finally applies environment variables to startup
-settings only. `PHOTOBOOTH_DATA_ROOT` selects the data root used to locate the
-default JSON file. The supported startup variables are `PHOTOBOOTH_BIND_HOST`,
-`PHOTOBOOTH_PORT`, `PHOTOBOOTH_DEBUG`, `PHOTOBOOTH_CAMERA_BACKEND`,
-`PHOTOBOOTH_DATA_ROOT` and `PHOTOBOOTH_ADMIN_SECRET`. The admin secret is never
-part of the JSON schema.
+The application loads defaults, then applies values from `config.json`. The
+file defaults to the current working directory and may be supplied explicitly
+when calling `load_configuration` in code. Startup options live under
+`startup`; booth options live under `booth`. Existing booth-only files remain
+readable and are migrated to the sectioned format on the next booth settings
+save.
 
 ---
 
@@ -659,12 +641,9 @@ configuration.
 
 ### admin_secret
 
-The admin secret is startup configuration.
-
-It must not be stored in the normal runtime-editable JSON configuration.
-
-It should be provided using an environment variable or another local
-deployment-level mechanism.
+The admin secret is optional startup configuration stored as
+`startup.admin_secret` in the local JSON file. Keep the local `config.json`
+uncommitted and restrict access to it on shared systems.
 
 The secret must:
 
@@ -680,46 +659,24 @@ It is not intended to provide Internet-facing authentication.
 
 ---
 
-## 23. Environment variables
+## 23. Runtime configuration file
 
-Environment variables should use a consistent application prefix.
+Default location:
 
-Recommended prefix:
+    config.json
 
-    PHOTOBOOTH_
+The application reads startup and booth configuration from this file. A
+`config.example.json` template is provided. The local config file is ignored by
+Git so deployment-specific settings and secrets are not accidentally committed.
 
-Possible examples:
+The file must not contain:
 
-    PHOTOBOOTH_BIND_HOST
-    PHOTOBOOTH_PORT
-    PHOTOBOOTH_ADMIN_SECRET
-    PHOTOBOOTH_DATA_ROOT
-    PHOTOBOOTH_CAMERA_BACKEND
-
-Not every runtime-editable setting needs an environment-variable equivalent.
-
-Environment variables should primarily address startup, deployment and secret
-configuration.
-
----
-
-## 24. Runtime configuration file
-
-Suggested location:
-
-    data/config.json
-
-The file contains runtime-editable booth configuration.
-
-It must not contain:
-
-- administrator secret;
 - arbitrary shell commands;
 - arbitrary rpicam arguments.
 
 ---
 
-## 25. Atomic configuration persistence
+## 24. Atomic configuration persistence
 
 Configuration writes must be atomic.
 

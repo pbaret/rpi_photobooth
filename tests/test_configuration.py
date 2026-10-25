@@ -19,7 +19,7 @@ def test_defaults_are_used_without_configuration_file(tmp_path: Path) -> None:
     """First startup uses defaults and does not create persistence files."""
     config_path = tmp_path / "config.json"
 
-    configuration = load_configuration(config_path, {})
+    configuration = load_configuration(config_path)
 
     assert isinstance(configuration, ApplicationConfig)
     assert configuration.booth == BoothSettings()
@@ -29,27 +29,50 @@ def test_defaults_are_used_without_configuration_file(tmp_path: Path) -> None:
     assert not config_path.exists()
 
 
-def test_environment_overrides_startup_settings(tmp_path: Path) -> None:
-    """Environment values override deployment defaults without changing booth values."""
-    configuration = load_configuration(
-        tmp_path / "config.json",
-        {
-            "PHOTOBOOTH_BIND_HOST": "0.0.0.0",
-            "PHOTOBOOTH_PORT": "8080",
-            "PHOTOBOOTH_DEBUG": "false",
-            "PHOTOBOOTH_DATA_ROOT": str(tmp_path),
-            "PHOTOBOOTH_CAMERA_BACKEND": "opencv",
-            "PHOTOBOOTH_ADMIN_SECRET": "local-secret",
-        },
+def test_default_path_loads_config_json_from_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Startup reads config.json from the process working directory by default."""
+    monkeypatch.chdir(tmp_path)
+    Path("config.json").write_text(
+        json.dumps({"startup": {"port": 8081}}), encoding="utf-8"
     )
+
+    configuration = load_configuration()
+
+    assert configuration.config_path == Path("config.json")
+    assert configuration.startup.port == 8081
+
+
+def test_startup_settings_are_loaded_from_json(tmp_path: Path) -> None:
+    """Startup settings and booth settings share one configuration document."""
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "startup": {
+                    "bind_host": "0.0.0.0",
+                    "port": 8080,
+                    "debug": False,
+                    "data_root": str(tmp_path / "photos"),
+                    "camera_backend": "opencv",
+                    "admin_secret": "local-secret",
+                },
+                "booth": {"booth_name": "Family booth"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    configuration = load_configuration(config_path)
 
     assert configuration.startup.bind_host == "0.0.0.0"
     assert configuration.startup.port == 8080
     assert not configuration.startup.debug
-    assert configuration.startup.data_root == tmp_path
+    assert configuration.startup.data_root == tmp_path / "photos"
     assert configuration.startup.camera_backend is CameraBackend.OPENCV
     assert configuration.startup.admin_secret == "local-secret"
-    assert configuration.booth == BoothSettings()
+    assert configuration.booth.booth_name == "Family booth"
 
 
 def test_valid_json_overrides_booth_defaults(tmp_path: Path) -> None:
@@ -66,7 +89,7 @@ def test_valid_json_overrides_booth_defaults(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    configuration = load_configuration(config_path, {})
+    configuration = load_configuration(config_path)
 
     assert configuration.booth == BoothSettings(
         booth_name="Family booth",
@@ -82,7 +105,7 @@ def test_malformed_json_fails_without_overwriting_source(tmp_path: Path) -> None
     config_path.write_bytes(original)
 
     with pytest.raises(ConfigurationError, match="cannot read configuration file"):
-        load_configuration(config_path, {})
+        load_configuration(config_path)
 
     assert config_path.read_bytes() == original
 
@@ -104,7 +127,16 @@ def test_numeric_bounds_are_validated(
     config_path.write_text(json.dumps({setting: value}), encoding="utf-8")
 
     with pytest.raises(ConfigurationError, match=setting):
-        load_configuration(config_path, {})
+        load_configuration(config_path)
+
+
+def test_unknown_configuration_section_is_rejected(tmp_path: Path) -> None:
+    """Misspelled sections fail clearly rather than silently using defaults."""
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"startpu": {"port": 8081}}), encoding="utf-8")
+
+    with pytest.raises(ConfigurationError, match="unknown configuration section"):
+        load_configuration(config_path)
 
 
 def test_persistence_atomically_writes_settings(tmp_path: Path) -> None:
@@ -114,7 +146,9 @@ def test_persistence_atomically_writes_settings(tmp_path: Path) -> None:
 
     save_booth_settings(config_path, settings)
 
-    assert load_configuration(config_path, {}).booth == settings
+    configuration = load_configuration(config_path)
+    assert configuration.booth == settings
+    assert configuration.startup.port == 5000
     assert not list(config_path.parent.glob("*.tmp"))
 
 
@@ -139,10 +173,22 @@ def test_failed_atomic_replacement_preserves_existing_file(
     assert not list(tmp_path.glob(".*.tmp"))
 
 
-def test_saved_booth_settings_do_not_include_startup_secrets(tmp_path: Path) -> None:
-    """Runtime persistence cannot serialize deployment-only secret values."""
+def test_booth_save_preserves_startup_settings(tmp_path: Path) -> None:
+    """Updating booth settings does not erase startup configuration."""
     config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "startup": {"port": 8080, "admin_secret": "local-secret"},
+                "booth": {"booth_name": "Before"},
+            }
+        ),
+        encoding="utf-8",
+    )
 
-    save_booth_settings(config_path, BoothSettings())
+    save_booth_settings(config_path, BoothSettings(booth_name="After"))
 
-    assert "admin_secret" not in config_path.read_text(encoding="utf-8")
+    configuration = load_configuration(config_path)
+    assert configuration.startup.port == 8080
+    assert configuration.startup.admin_secret == "local-secret"
+    assert configuration.booth.booth_name == "After"
