@@ -244,6 +244,14 @@ Responsible for:
 - revoking tokens;
 - resolving downloads.
 
+DownloadService persists one versioned JSON record per random token beneath
+`data_root/metadata/download_tokens`. Each record contains one photo ID, a UTC
+expiration instant, and a revocation flag. The configured lifetime is measured
+from token creation; a token is expired when the current UTC instant is equal
+to or later than its expiration. Revocation is persisted atomically. Every
+download also resolves the original through GalleryService, so deleting the
+photo makes all of its tokens unusable even though token records are retained.
+
 ### SlideshowService
 
 Responsible for:
@@ -670,6 +678,13 @@ When a photo is deleted, its download tokens become invalid.
 
 The application must not silently use localhost for QR URLs intended for a
 different device.
+
+`public_base_url` must be an explicitly configured HTTP(S) origin reachable by
+the scanning device. When absent, review remains usable and displays a clear
+configuration error without issuing a token. QR images are generated locally
+with qrcode and Pillow; photo bytes and tokens are not sent to an external
+service. Download URLs are bearer capabilities intended only for a trusted
+LAN, not an authentication mechanism.
 
 ---
 

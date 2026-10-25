@@ -559,33 +559,54 @@ Purpose:
 Provides the externally reachable application origin inserted into QR download
 URLs.
 
+Set this to the address that a second device on the same LAN can reach,
+including the application's port. The configured value must be an HTTP(S)
+origin without credentials, a path, query, or fragment. For example:
+
+    http://192.168.1.42:5000
+
 The system must not silently generate:
 
     http://localhost:5000/...
 
 for a QR code intended to be scanned by another device.
 
-If `public_base_url` is not configured, QR download generation should report a
-useful configuration error.
+If `public_base_url` is not configured, the review screen remains available but
+shows a clear configuration error and does not issue a download token. Invalid
+configured values are rejected during configuration loading.
 
 ---
 
 ## 20. Download token configuration
 
-### download_token_expiry_seconds
+### download_token_lifetime_seconds
 
 Type:
 
-    int | None
+    int
+
+Default:
+
+    3600
 
 Purpose:
 
-Defines how long a generated photo-download token remains logically valid.
+Defines the token lifetime in seconds. The value must be positive. Expiration
+is evaluated against the persisted UTC expiration time when a download is
+requested; no background cleanup is required.
 
-A `None` value may represent no time-based expiration while still allowing
-explicit token revocation.
+Token records are owned by DownloadService and stored as JSON beneath
+`data_root/metadata/download_tokens`. Tokens are generated using
+`secrets.token_urlsafe`, are independent from photo IDs, and each references
+exactly one photo. Revocation is persisted in the token record. A token becomes
+unusable after expiry, revocation, or deletion of its photo. The download
+endpoint checks GalleryService on every request, so deletion revokes access
+even if the token record remains on disk.
 
-Tokens must always become invalid when their photo is deleted.
+Download URLs are bearer capabilities: anyone who obtains one can download the
+photo until it expires, is revoked, or the photo is deleted. Use only on a
+trusted local network; this milestone does not provide authentication or
+encrypted transport. Do not expose the application to an untrusted network.
 
 ---
 

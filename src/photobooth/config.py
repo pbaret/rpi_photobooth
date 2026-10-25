@@ -7,6 +7,7 @@ from enum import Enum
 from pathlib import Path
 import tempfile
 from typing import cast
+from urllib.parse import urlsplit
 
 
 class ConfigurationError(ValueError):
@@ -31,6 +32,8 @@ class StartupConfig:
     data_root: Path = Path("data")
     camera_backend: CameraBackend = CameraBackend.SYNTHETIC
     admin_secret: str | None = None
+    public_base_url: str | None = None
+    download_token_lifetime_seconds: int = 3600
 
     def __post_init__(self) -> None:
         """Reject invalid values before they reach application setup."""
@@ -40,6 +43,10 @@ class StartupConfig:
             raise ConfigurationError("port must be between 1 and 65535")
         if self.debug and self.bind_host in {"0.0.0.0", "::"}:
             raise ConfigurationError("debug mode cannot bind to a LAN interface")
+        if self.public_base_url is not None:
+            validate_public_base_url(self.public_base_url)
+        if self.download_token_lifetime_seconds < 1:
+            raise ConfigurationError("download_token_lifetime_seconds must be positive")
 
 
 @dataclass(frozen=True)
@@ -106,6 +113,8 @@ def load_configuration(
             "data_root",
             "camera_backend",
             "admin_secret",
+            "public_base_url",
+            "download_token_lifetime_seconds",
         },
     )
     booth_values = _section_values(
@@ -127,6 +136,10 @@ def load_configuration(
         data_root=data_root,
         camera_backend=_camera_backend_value(startup_values),
         admin_secret=_optional_string_value(startup_values, "admin_secret"),
+        public_base_url=_optional_string_value(startup_values, "public_base_url"),
+        download_token_lifetime_seconds=_integer_value(
+            startup_values, "download_token_lifetime_seconds", 3600
+        ),
     )
     booth = BoothSettings(
         booth_name=_string_value(booth_values, "booth_name", "Photobooth"),
@@ -157,6 +170,8 @@ def save_booth_settings(config_path: Path, settings: BoothSettings) -> None:
             "data_root": str(startup.data_root),
             "camera_backend": startup.camera_backend.value,
             "admin_secret": startup.admin_secret,
+            "public_base_url": startup.public_base_url,
+            "download_token_lifetime_seconds": startup.download_token_lifetime_seconds,
         },
         "booth": {
             "booth_name": settings.booth_name,
@@ -278,3 +293,36 @@ def _optional_string_value(values: dict[str, object], name: str) -> str | None:
     if value is not None and not isinstance(value, str):
         raise ConfigurationError(f"{name} must be a string or null")
     return value
+
+
+def validate_public_base_url(public_base_url: str | None) -> str:
+    """Return a normalized HTTP(S) origin suitable for application download links.
+
+    Public URLs must identify this application's root without credentials,
+    query parameters, or fragments. A missing URL is allowed at startup but
+    raises a clear error when a QR download is requested.
+    """
+    if public_base_url is None or not public_base_url.strip():
+        raise ConfigurationError(
+            "public_base_url must be configured to generate download QR codes"
+        )
+    if public_base_url != public_base_url.strip():
+        raise ConfigurationError("public_base_url must not contain surrounding whitespace")
+    try:
+        parsed = urlsplit(public_base_url)
+        parsed.port
+    except ValueError as error:
+        raise ConfigurationError("public_base_url is invalid") from error
+    if (
+        parsed.scheme not in {"http", "https"}
+        or parsed.hostname is None
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ConfigurationError(
+            "public_base_url must be an HTTP(S) origin without credentials or a path"
+        )
+    return public_base_url.rstrip("/")

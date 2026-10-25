@@ -15,15 +15,17 @@ from flask import (
     url_for,
 )
 from flask.typing import ResponseReturnValue
+import base64
 
 from photobooth.camera.contract import CameraError
-from photobooth.config import ApplicationConfig
+from photobooth.config import ApplicationConfig, ConfigurationError, validate_public_base_url
 from photobooth.printing import PrintError, PrinterBackend
 from photobooth.services.gallery import (
     GalleryError,
     GalleryService,
     PhotoNotFoundError,
 )
+from photobooth.services.downloads import DownloadError, DownloadService
 from photobooth.services.preview import (
     CaptureInProgressError,
     PreviewService,
@@ -76,10 +78,30 @@ def review(photo_id: str) -> str:
     print_status = request.args.get("print_status")
     if print_status not in {"placeholder", "submitted", "error"}:
         print_status = None
+    configuration = cast(
+        ApplicationConfig, current_app.extensions["photobooth.configuration"]
+    )
+    downloads = cast(DownloadService, current_app.extensions["photobooth.downloads"])
+    qr_data_uri: str | None = None
+    download_error: str | None = None
+    try:
+        public_base_url = validate_public_base_url(
+            configuration.startup.public_base_url
+        )
+        token = downloads.create_token(photo_id)
+        download_url = downloads.build_download_url(token.token, public_base_url)
+        qr_png = downloads.create_qr_png(download_url)
+        qr_data_uri = "data:image/png;base64," + base64.b64encode(qr_png).decode("ascii")
+    except ConfigurationError as error:
+        download_error = str(error)
+    except (DownloadError, GalleryError):
+        abort(503)
     return render_template(
         "booth/review.html",
         photo=photo,
         photo_url=url_for("media.photo", photo_id=photo_id),
+        qr_data_uri=qr_data_uri,
+        download_error=download_error,
         print_status=print_status,
     )
 

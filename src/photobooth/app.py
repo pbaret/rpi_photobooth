@@ -11,7 +11,9 @@ from photobooth.config import (
 from photobooth.printing import NullPrinterBackend, PrinterBackend
 from photobooth.routes.admin import admin_blueprint
 from photobooth.routes.booth import booth_blueprint
+from photobooth.routes.downloads import downloads_blueprint
 from photobooth.routes.media import media_blueprint
+from photobooth.services.downloads import DownloadService
 from photobooth.services.preview import PreviewService
 from photobooth.services.gallery import GalleryService
 
@@ -45,9 +47,15 @@ def create_app(
     app.config["DEBUG"] = active_configuration.startup.debug
     app.extensions["photobooth.configuration"] = active_configuration
     app.extensions["photobooth.gallery"] = active_gallery
+    app.extensions["photobooth.downloads"] = DownloadService(
+        active_configuration.startup.data_root,
+        active_gallery,
+        active_configuration.startup.download_token_lifetime_seconds,
+    )
     app.extensions["photobooth.printer"] = active_printer
     app.extensions["photobooth.preview"] = PreviewService(active_camera, active_gallery)
     app.register_blueprint(booth_blueprint)
+    app.register_blueprint(downloads_blueprint)
     app.register_blueprint(media_blueprint)
     app.register_blueprint(admin_blueprint)
     return app

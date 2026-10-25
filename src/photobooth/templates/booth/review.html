@@ -38,12 +38,19 @@
       .photo-frame img { display: block; width: 100%; height: 100%; object-fit: contain; }
       .qr-reservation {
         display: grid;
-        min-height: 76px;
+        gap: 8px;
         place-items: center;
-        border: 1px dashed #8e958f;
         color: #c2c8c1;
+        text-align: center;
       }
-      .qr-reservation p { margin: 0; }
+      .qr-reservation img {
+        display: block;
+        width: min(180px, 42vw);
+        aspect-ratio: 1;
+        background: #fff;
+        image-rendering: pixelated;
+      }
+      .qr-reservation p { max-width: 28ch; margin: 0; }
       .status { min-height: 1.5em; margin: 0; text-align: center; }
       .actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
       .actions form { min-width: 0; }
@@ -77,6 +84,7 @@
         header { text-align: left; }
         .qr-reservation, .status, .actions { grid-column: 2; }
         .qr-reservation { grid-row: 1; align-self: end; }
+        .qr-reservation img { width: min(180px, 100%); }
         .status { grid-row: 2; align-self: end; }
         .actions { grid-row: 3; grid-template-columns: 1fr; }
       }
@@ -88,8 +96,13 @@
       <section class="photo-frame" aria-label="Photo capturée">
         <img src="{{ photo_url }}" alt="Photo capturée">
       </section>
-      <section class="qr-reservation" aria-label="Espace réservé au QR code">
-        <p>QR</p>
+      <section class="qr-reservation" aria-label="Téléchargement de la photo">
+        {% if qr_data_uri %}
+        <img src="{{ qr_data_uri }}" alt="QR code pour télécharger cette photo">
+        <p>Scannez ce QR code pour télécharger la photo.</p>
+        {% else %}
+        <p>{{ download_error }}</p>
+        {% endif %}
       </section>
       <p class="status" role="status" aria-live="polite">
         {% if print_status == "placeholder" %}Impression non configurée sur cet appareil.{% endif %}

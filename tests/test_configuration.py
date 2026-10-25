@@ -10,6 +10,7 @@ from photobooth.config import (
     BoothSettings,
     CameraBackend,
     ConfigurationError,
+    StartupConfig,
     load_configuration,
     save_booth_settings,
 )
@@ -26,6 +27,8 @@ def test_defaults_are_used_without_configuration_file(tmp_path: Path) -> None:
     assert configuration.startup.bind_host == "127.0.0.1"
     assert configuration.startup.port == 5000
     assert configuration.startup.camera_backend is CameraBackend.SYNTHETIC
+    assert configuration.startup.public_base_url is None
+    assert configuration.startup.download_token_lifetime_seconds == 3600
     assert not config_path.exists()
 
 
@@ -57,6 +60,8 @@ def test_startup_settings_are_loaded_from_json(tmp_path: Path) -> None:
                     "data_root": str(tmp_path / "photos"),
                     "camera_backend": "opencv",
                     "admin_secret": "local-secret",
+                    "public_base_url": "http://192.168.1.42:5000",
+                    "download_token_lifetime_seconds": 900,
                 },
                 "booth": {"booth_name": "Family booth"},
             }
@@ -72,7 +77,19 @@ def test_startup_settings_are_loaded_from_json(tmp_path: Path) -> None:
     assert configuration.startup.data_root == tmp_path / "photos"
     assert configuration.startup.camera_backend is CameraBackend.OPENCV
     assert configuration.startup.admin_secret == "local-secret"
+    assert configuration.startup.public_base_url == "http://192.168.1.42:5000"
+    assert configuration.startup.download_token_lifetime_seconds == 900
     assert configuration.booth.booth_name == "Family booth"
+
+
+@pytest.mark.parametrize(
+    "public_base_url",
+    ["ftp://photobooth.local", "http://photobooth.local/booth", "http://user@host"],
+)
+def test_invalid_public_base_url_is_rejected(public_base_url: str) -> None:
+    """Configured QR origins must be valid application HTTP(S) origins."""
+    with pytest.raises(ConfigurationError, match="public_base_url"):
+        StartupConfig(public_base_url=public_base_url)
 
 
 def test_valid_json_overrides_booth_defaults(tmp_path: Path) -> None:
@@ -179,7 +196,12 @@ def test_booth_save_preserves_startup_settings(tmp_path: Path) -> None:
     config_path.write_text(
         json.dumps(
             {
-                "startup": {"port": 8080, "admin_secret": "local-secret"},
+                "startup": {
+                    "port": 8080,
+                    "admin_secret": "local-secret",
+                    "public_base_url": "http://192.168.1.42:5000",
+                    "download_token_lifetime_seconds": 900,
+                },
                 "booth": {"booth_name": "Before"},
             }
         ),
@@ -191,4 +213,6 @@ def test_booth_save_preserves_startup_settings(tmp_path: Path) -> None:
     configuration = load_configuration(config_path)
     assert configuration.startup.port == 8080
     assert configuration.startup.admin_secret == "local-secret"
+    assert configuration.startup.public_base_url == "http://192.168.1.42:5000"
+    assert configuration.startup.download_token_lifetime_seconds == 900
     assert configuration.booth.booth_name == "After"

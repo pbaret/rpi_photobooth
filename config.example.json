@@ -5,7 +5,9 @@
     "debug": false,
     "data_root": "data",
     "camera_backend": "synthetic",
-    "admin_secret": null
+    "admin_secret": null,
+    "public_base_url": null,
+    "download_token_lifetime_seconds": 3600
   },
   "booth": {
     "booth_name": "Photobooth",
