@@ -154,3 +154,27 @@ OpenCV tests replace the device boundary rather than opening a real webcam.
 Real camera acquisition, preview performance, autofocus, and
 preview-to-still latency require validation on the Raspberry Pi and Camera
 Module 3.
+
+## 6. Browser preview transport
+
+The Flask application factory owns one `PreviewService` and its selected
+`CameraBackend`. The service starts the backend when the first browser requests
+`/preview.mjpg`, obtains the first JPEG before sending stream headers, then
+uses one producer thread to read subsequent frames. A condition variable
+protects a latest-frame byte value and generation counter; concurrent browsers
+receive the same published JPEG generation rather than reading the camera
+independently. The final disconnected stream releases the backend. A browser
+disconnect only removes that subscriber; it does not interrupt other streams.
+
+Camera startup or first-frame failure is returned as HTTP 503. A later camera
+failure ends all active MJPEG streams and the service attempts to stop the
+backend. A new request may start the backend again after the failed producer
+has finished cleanup. The application entry point closes the preview service
+in a `finally` block when Flask exits. Shutdown wakes the producer and waits
+for any in-progress backend frame read to return before releasing the camera.
+
+MJPEG is a sequence of JPEG parts over one long-lived HTTP response. It is
+simple and supported by browser image elements, but has no audio, backpressure
+control, frame timestamps, adaptive quality, or built-in reconnect policy.
+Clients may display the last received frame after a stream fails, and multiple
+clients share server-side frames but each maintain their own HTTP connection.
