@@ -540,7 +540,9 @@ while IDLE; countdown and capture use independent workflow timing. While
 slideshow is active, the first interaction is consumed; waking from review
 returns to the live booth preview. The thumbnail list is refreshed on
 slideshow entry and once per minute while active; an empty gallery shows the
-wake instruction and follows the same refresh schedule.
+wake instruction and follows the same refresh schedule. Each fetched
+thumbnail list is shuffled client-side before rotation, with an unchanged
+chronological sequence avoided.
 
 ---
 

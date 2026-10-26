@@ -587,7 +587,10 @@ cannot affect the separate capture countdown. On either page, the first
 activity event during SLIDESHOW is consumed before it can trigger a control.
 The browser fetches the GalleryService thumbnail list on entry and refreshes it
 every minute while active; an empty list leaves the instruction visible
-without rapid retries. Waking from review returns to the booth preview page.
+without rapid retries. Each fetched list is shuffled client-side before
+rotation, so media is presented in random order without changing gallery
+listing order; a shuffle that would leave the chronological list unchanged is
+adjusted. Waking from review returns to the booth preview page.
 
 Only one capture operation may run at a time.
 

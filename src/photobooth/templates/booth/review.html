@@ -201,6 +201,24 @@
         slideshowIndex = (slideshowIndex + 1) % slideshowThumbnails.length;
       }
 
+      function shuffleThumbnails(thumbnails) {
+        const originalOrder = [...thumbnails];
+        for (let index = thumbnails.length - 1; index > 0; index -= 1) {
+          const swapIndex = Math.floor(Math.random() * (index + 1));
+          [thumbnails[index], thumbnails[swapIndex]] = [
+            thumbnails[swapIndex],
+            thumbnails[index],
+          ];
+        }
+        if (
+          thumbnails.length > 1 &&
+          thumbnails.every((thumbnail, index) => thumbnail === originalOrder[index])
+        ) {
+          [thumbnails[0], thumbnails[1]] = [thumbnails[1], thumbnails[0]];
+        }
+        return thumbnails;
+      }
+
       async function refreshSlideshowPhotos() {
         if (feedRequestInProgress || review.dataset.state !== "slideshow") return;
         feedRequestInProgress = true;
@@ -209,7 +227,9 @@
           if (!response.ok) throw new Error("slideshow feed unavailable");
           const payload = await response.json();
           if (!Array.isArray(payload.thumbnails)) throw new Error("invalid slideshow feed");
-          slideshowThumbnails = payload.thumbnails.filter((url) => typeof url === "string");
+          slideshowThumbnails = shuffleThumbnails(
+            payload.thumbnails.filter((url) => typeof url === "string")
+          );
           slideshowIndex = 0;
           showSlideshowPhoto();
         } catch {
