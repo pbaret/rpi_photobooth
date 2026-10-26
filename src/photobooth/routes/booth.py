@@ -127,6 +127,9 @@ def review(photo_id: str) -> str:
         qr_data_uri=qr_data_uri,
         download_error=download_error,
         print_status=print_status,
+        idle_timeout_seconds=configuration.booth.idle_timeout_seconds,
+        slideshow_enabled=configuration.booth.slideshow_enabled,
+        slideshow_interval_seconds=configuration.booth.slideshow_interval_seconds,
     )
 
 

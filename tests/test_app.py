@@ -109,6 +109,9 @@ def test_capture_endpoint_publishes_photo_and_opens_review(tmp_path: Path) -> No
     assert b"Reprendre" in review_response.data
     assert b"Supprimer" in review_response.data
     assert b"Imprimer" in review_response.data
+    assert b'data-idle-timeout-seconds="120"' in review_response.data
+    assert b'data-slideshow-enabled="true"' in review_response.data
+    assert b"Touchez l'\xc3\xa9cran pour d\xc3\xa9marrer" in review_response.data
     preview = cast(PreviewService, app.extensions["photobooth.preview"])
     subscription = preview.subscribe()
     assert next(subscription).startswith(b"\xff\xd8")

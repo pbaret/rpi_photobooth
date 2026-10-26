@@ -534,13 +534,13 @@ The value must be positive when slideshow is active.
 
 The slideshow uses thumbnails instead of original full-resolution files.
 
-The browser resets inactivity after pointer, keyboard, and wheel activity. The
-timer runs only while the booth is IDLE; countdown and capture use independent
-workflow timing. On return from review, loading the booth page starts a fresh
-inactivity period. While slideshow is active, the first interaction exits it
-and is consumed so it cannot also start a capture. The thumbnail list is
-refreshed on slideshow entry and once per minute while active; an empty gallery
-shows the waiting instruction and follows the same refresh schedule.
+The browser resets inactivity after pointer, keyboard, and wheel activity on
+both the booth preview and photo review screens. The booth timer runs only
+while IDLE; countdown and capture use independent workflow timing. While
+slideshow is active, the first interaction is consumed; waking from review
+returns to the live booth preview. The thumbnail list is refreshed on
+slideshow entry and once per minute while active; an empty gallery shows the
+wake instruction and follows the same refresh schedule.
 
 ---
 

@@ -70,6 +70,38 @@
       }
       .actions button { width: 100%; }
       .delete-button { background: #ef8a76; }
+
+      .slideshow {
+        position: fixed;
+        z-index: 10;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        background: #050605;
+        touch-action: manipulation;
+      }
+      .slideshow[hidden] { display: none; }
+      .slideshow img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+      .slideshow p {
+        position: absolute;
+        right: max(20px, env(safe-area-inset-right));
+        bottom: max(20px, env(safe-area-inset-bottom));
+        left: max(20px, env(safe-area-inset-left));
+        margin: 0;
+        padding: 14px 18px;
+        background: rgb(0 0 0 / 76%);
+        color: #fff;
+        font-size: clamp(1.1rem, 4vh, 2rem);
+        font-weight: 700;
+        text-align: center;
+      }
+
       button:disabled { cursor: wait; opacity: 0.65; }
       button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 
@@ -91,7 +123,12 @@
     </style>
   </head>
   <body>
-    <main class="review" data-photo-id="{{ photo.photo_id }}">
+    <main class="review" id="review" data-photo-id="{{ photo.photo_id }}"
+      data-idle-timeout-seconds="{{ idle_timeout_seconds }}"
+      data-slideshow-enabled="{{ 'true' if slideshow_enabled else 'false' }}"
+      data-slideshow-interval-seconds="{{ slideshow_interval_seconds }}"
+      data-slideshow-feed-url="{{ url_for('booth.slideshow_photos') }}"
+      data-booth-url="{{ url_for('booth.index') }}">
       <header><h1>Vérifier la photo</h1></header>
       <section class="photo-frame" aria-label="Photo capturée">
         <img src="{{ photo_url }}" alt="Photo capturée">
@@ -122,10 +159,100 @@
         </form>
       </nav>
     </main>
+    <section class="slideshow" id="slideshow-panel" aria-label="Diaporama" hidden>
+      <img id="slideshow-image" alt="" hidden>
+      <p role="status">Touchez l'écran pour démarrer</p>
+    </section>
     <script>
       const printForm = document.getElementById("print-form");
       const printButton = document.getElementById("print-button");
+      const review = document.getElementById("review");
+      const slideshowPanel = document.getElementById("slideshow-panel");
+      const slideshowImage = document.getElementById("slideshow-image");
+      const idleTimeoutSeconds = Number(review.dataset.idleTimeoutSeconds);
+      const slideshowEnabled = review.dataset.slideshowEnabled === "true";
+      const slideshowIntervalSeconds = Number(review.dataset.slideshowIntervalSeconds);
+      const slideshowFeedUrl = review.dataset.slideshowFeedUrl;
+      const boothUrl = review.dataset.boothUrl;
+      let inactivityTimer = 0;
+      let rotationTimer = 0;
+      let refreshTimer = 0;
+      let slideshowThumbnails = [];
+      let slideshowIndex = 0;
+      let feedRequestInProgress = false;
+
       printForm.addEventListener("submit", () => { printButton.disabled = true; });
+
+      function scheduleInactivity() {
+        window.clearTimeout(inactivityTimer);
+        if (slideshowEnabled && idleTimeoutSeconds > 0 && review.dataset.state === "review") {
+          inactivityTimer = window.setTimeout(enterSlideshow, idleTimeoutSeconds * 1000);
+        }
+      }
+
+      function showSlideshowPhoto() {
+        if (review.dataset.state !== "slideshow" || slideshowThumbnails.length === 0) {
+          slideshowImage.hidden = true;
+          slideshowImage.removeAttribute("src");
+          return;
+        }
+        slideshowImage.hidden = false;
+        slideshowImage.src = slideshowThumbnails[slideshowIndex];
+        slideshowIndex = (slideshowIndex + 1) % slideshowThumbnails.length;
+      }
+
+      async function refreshSlideshowPhotos() {
+        if (feedRequestInProgress || review.dataset.state !== "slideshow") return;
+        feedRequestInProgress = true;
+        try {
+          const response = await fetch(slideshowFeedUrl, { cache: "no-store" });
+          if (!response.ok) throw new Error("slideshow feed unavailable");
+          const payload = await response.json();
+          if (!Array.isArray(payload.thumbnails)) throw new Error("invalid slideshow feed");
+          slideshowThumbnails = payload.thumbnails.filter((url) => typeof url === "string");
+          slideshowIndex = 0;
+          showSlideshowPhoto();
+        } catch {
+          slideshowThumbnails = [];
+          showSlideshowPhoto();
+        } finally {
+          feedRequestInProgress = false;
+        }
+      }
+
+      function enterSlideshow() {
+        if (!slideshowEnabled || review.dataset.state !== "review") return;
+        review.dataset.state = "slideshow";
+        slideshowPanel.hidden = false;
+        void refreshSlideshowPhotos();
+        rotationTimer = window.setInterval(showSlideshowPhoto, slideshowIntervalSeconds * 1000);
+        refreshTimer = window.setInterval(refreshSlideshowPhotos, 60000);
+      }
+
+      function wakeToBooth() {
+        window.clearInterval(rotationTimer);
+        window.clearInterval(refreshTimer);
+        window.location.assign(boothUrl);
+      }
+
+      function handleActivity(event) {
+        if (review.dataset.state === "slideshow") {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          wakeToBooth();
+          return;
+        }
+        if (review.dataset.state === "review") scheduleInactivity();
+      }
+
+      for (const eventName of ["pointerdown", "pointermove", "keydown", "wheel"]) {
+        document.addEventListener(eventName, handleActivity, { capture: true });
+      }
+
+      slideshowImage.addEventListener("error", () => { slideshowImage.hidden = true; });
+      review.dataset.state = "review";
+      window.addEventListener("pageshow", scheduleInactivity);
+      scheduleInactivity();
     </script>
   </body>
 </html>
