@@ -144,7 +144,7 @@ The review page must:
 
 Provide these actions:
 
-- `Reprendre`;
+- `Nouvelle Photo`;
 - `Supprimer`;
 - `Imprimer`.
 

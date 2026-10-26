@@ -106,7 +106,7 @@ def test_capture_endpoint_publishes_photo_and_opens_review(tmp_path: Path) -> No
     assert review_path.startswith("/review/")
     review_response = client.get(review_path)
     assert review_response.status_code == 200
-    assert b"Reprendre" in review_response.data
+    assert b"Nouvelle Photo" in review_response.data
     assert b"Supprimer" in review_response.data
     assert b"Imprimer" in review_response.data
     assert b'data-idle-timeout-seconds="120"' in review_response.data

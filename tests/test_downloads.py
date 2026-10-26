@@ -115,7 +115,7 @@ def test_review_shows_qr_and_download_route_returns_attachment(tmp_path: Path) -
     assert review.status_code == 200
     assert b"data:image/png;base64," in review.data
     assert b"Scannez ce QR code" in review.data
-    assert b"Reprendre" in review.data
+    assert b"Nouvelle Photo" in review.data
     assert b"Supprimer" in review.data
     assert b"Imprimer" in review.data
 
