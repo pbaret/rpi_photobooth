@@ -148,7 +148,7 @@
       </p>
       <nav class="actions" aria-label="Actions sur la photo">
         <form action="{{ url_for('booth.retake', photo_id=photo.photo_id) }}" method="post">
-          <button type="submit">Reprendre</button>
+          <button type="submit">Nouvelle Photo</button>
         </form>
         <form action="{{ url_for('booth.delete_photo', photo_id=photo.photo_id) }}" method="post"
           onsubmit="return window.confirm('Supprimer définitivement cette photo ?')">
