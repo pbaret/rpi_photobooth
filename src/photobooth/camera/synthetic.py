@@ -36,6 +36,7 @@ class SyntheticCameraBackend:
         self._overlay_enabled = True
         self._jpeg_quality = 85
         self._scene = "classic"
+        self._requested_scene = "classic"
 
     def get_capabilities(self) -> tuple[CameraSettingCapability, ...]:
         """Describe synthetic-only test controls and their currently effective values.
@@ -79,6 +80,7 @@ class SyntheticCameraBackend:
     def start(self) -> None:
         """Make preview available; repeated calls leave the backend started."""
         with self._lock:
+            self._scene = self._requested_scene
             self._started = True
 
     def stop(self) -> None:
@@ -157,7 +159,7 @@ class SyntheticCameraBackend:
                 label="Synthetic scene",
                 value_type=CameraSettingType.ENUM,
                 default_value="classic",
-                requested_value=self._scene,
+                requested_value=self._requested_scene,
                 effective_value=self._scene,
                 allowed_values=("classic", "colorful"),
                 restart_required=True,
@@ -181,7 +183,7 @@ class SyntheticCameraBackend:
         elif setting.identifier == "synthetic_quality":
             self._jpeg_quality = int(setting.value)
         elif setting.identifier == "synthetic_scene":
-            self._scene = str(setting.value)
+            self._requested_scene = str(setting.value)
 
     @staticmethod
     def _render_jpeg(overlay_enabled: bool, quality: int, scene: str) -> bytes:

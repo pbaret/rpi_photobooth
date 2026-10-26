@@ -175,9 +175,15 @@ class OpenCVCameraBackend:
     def _store_setting_locked(self, setting: ValidatedCameraSetting) -> None:
         """Store the backend option after capability validation."""
         if setting.identifier == "preview_width":
-            self._requested_width = int(setting.value)
+            requested_width = int(setting.value)
+            if requested_width != self._requested_width:
+                self._effective_resolution = None
+            self._requested_width = requested_width
         elif setting.identifier == "preview_height":
-            self._requested_height = int(setting.value)
+            requested_height = int(setting.value)
+            if requested_height != self._requested_height:
+                self._effective_resolution = None
+            self._requested_height = requested_height
         elif setting.identifier == "preview_mirror":
             self._mirror_preview = bool(setting.value)
 

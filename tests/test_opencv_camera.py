@@ -1,17 +1,27 @@
 """Verify OpenCV camera behavior with a fake device and no webcam hardware."""
 
 from pathlib import Path
+import base64
 from typing import Callable
+from typing import cast
 
 import pytest
 
 import photobooth.camera.opencv as opencv_camera
+from photobooth.app import create_app
 from photobooth.camera import (
     CameraOperationError,
     CameraSettingType,
     CameraUnavailableError,
     OpenCVCameraBackend,
 )
+from photobooth.config import (
+    ApplicationConfig,
+    BoothSettings,
+    CameraBackend as CameraBackendKind,
+    StartupConfig,
+)
+from photobooth.services.preview import PreviewService
 
 
 class FakeEncodedImage:
@@ -203,3 +213,55 @@ def test_failed_capture_write_releases_device(
         backend.capture(tmp_path / "missing" / "capture.jpg")
 
     assert fake_capture.release_count == 1
+
+
+def test_admin_resolution_request_is_used_on_next_camera_start(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A saved restart-required resolution reaches OpenCV on the next start."""
+    fake_capture = FakeCapture()
+    install_fake_opencv(monkeypatch, lambda _index: fake_capture)
+    config_path = tmp_path / "config.json"
+    configuration = ApplicationConfig(
+        startup=StartupConfig(
+            data_root=tmp_path / "data",
+            admin_secret="test-secret",
+            camera_backend=CameraBackendKind.OPENCV,
+        ),
+        booth=BoothSettings(),
+        config_path=config_path,
+    )
+    backend = OpenCVCameraBackend()
+    app = create_app(configuration=configuration, camera_backend=backend)
+    client = app.test_client()
+    credential = base64.b64encode(b"admin:test-secret").decode("ascii")
+
+    response = client.post(
+        "/admin/settings",
+        data={
+            "booth_name": "Photobooth",
+            "countdown_seconds": "3",
+            "idle_timeout_seconds": "120",
+            "slideshow_interval_seconds": "5",
+            "slideshow_enabled": "true",
+            "public_base_url": "",
+            "download_token_lifetime_seconds": "3600",
+            "camera_backend": "opencv",
+            "camera_setting_preview_width": "2560",
+            "camera_setting_preview_height": "1440",
+            "camera_setting_preview_mirror": "true",
+            "camera_settings_present": "true",
+        },
+        headers={"Authorization": f"Basic {credential}"},
+    )
+
+    assert response.status_code == 303
+    backend.start()
+
+    assert fake_capture.requested_properties == [
+        (opencv_camera.cv2.CAP_PROP_FRAME_WIDTH, 2560.0),
+        (opencv_camera.cv2.CAP_PROP_FRAME_HEIGHT, 1440.0),
+    ]
+    backend.stop()
+    preview = cast(PreviewService, app.extensions["photobooth.preview"])
+    preview.close()

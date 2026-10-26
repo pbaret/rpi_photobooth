@@ -123,4 +123,7 @@ def test_saved_supported_synthetic_request_is_configured_at_startup() -> None:
 
     capabilities = {item.identifier: item for item in backend.get_capabilities()}
     assert capabilities["synthetic_scene"].requested_value == "colorful"
+    assert capabilities["synthetic_scene"].effective_value == "classic"
+    backend.start()
+    capabilities = {item.identifier: item for item in backend.get_capabilities()}
     assert capabilities["synthetic_scene"].effective_value == "colorful"

@@ -140,7 +140,10 @@ def update_settings() -> ResponseReturnValue:
 	capability_by_id = {item.identifier: item for item in camera_capabilities}
 	for setting in camera_updates:
 		capability = capability_by_id[setting.identifier]
-		if not capability.restart_required:
+		if capability.restart_required:
+			if camera_backend is effective.startup.camera_backend:
+				camera.configure_settings({setting.identifier: setting.value})
+		else:
 			applied_value = camera.apply_setting(setting)
 			active_camera_settings[setting.identifier] = applied_value
 	current_app.extensions["photobooth.persisted_configuration"] = updated
@@ -185,12 +188,10 @@ def _render_admin(
 	)
 	camera_restart_required = any(
 		capability.restart_required
-		and capability.requested_value
-		!= next(
-			active.requested_value
-			for active in camera_capabilities
-			if active.identifier == capability.identifier
+		and persisted_camera_settings.get(
+			capability.identifier, capability.requested_value
 		)
+		!= capability.effective_value
 		for capability in camera_controls
 	)
 	try:
