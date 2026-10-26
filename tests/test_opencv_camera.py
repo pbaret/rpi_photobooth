@@ -8,6 +8,7 @@ import pytest
 import photobooth.camera.opencv as opencv_camera
 from photobooth.camera import (
     CameraOperationError,
+    CameraSettingType,
     CameraUnavailableError,
     OpenCVCameraBackend,
 )
@@ -102,6 +103,12 @@ def test_start_is_lazy_idempotent_and_reports_effective_resolution(
 
     assert backend.requested_resolution == (640, 480)
     assert backend.effective_resolution is None
+    capabilities = {item.identifier: item for item in backend.get_capabilities()}
+    assert set(capabilities) == {"preview_width", "preview_height", "preview_mirror"}
+    assert capabilities["preview_width"].value_type is CameraSettingType.INTEGER
+    assert capabilities["preview_width"].effective_value is None
+    assert capabilities["preview_width"].restart_required
+    assert capabilities["preview_mirror"].value_type is CameraSettingType.BOOLEAN
     backend.start()
     backend.start()
 

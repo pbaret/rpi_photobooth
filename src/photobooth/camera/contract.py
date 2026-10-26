@@ -4,8 +4,15 @@ The contract uses only standard-library types so implementations can isolate
 OpenCV, subprocess, and Raspberry Pi details behind this module.
 """
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Protocol
+
+from photobooth.camera.settings import (
+    CameraSettingCapability,
+    CameraSettingValue,
+    ValidatedCameraSetting,
+)
 
 
 class CameraError(Exception):
@@ -29,6 +36,34 @@ class CameraBackend(Protocol):
     review. Implementations must not expose backend-specific resource types.
     """
 
+    def get_capabilities(self) -> tuple[CameraSettingCapability, ...]:
+        """Return controls declared by this backend and their current values.
+
+        A declaration describes implemented support, not hardware guarantees.
+        Requested values remain separate from effective values, which are absent
+        when the backend cannot currently report the applied result.
+        """
+        ...
+
+    def configure_settings(
+        self, settings: Mapping[str, CameraSettingValue]
+    ) -> None:
+        """Load validated persisted requests before camera operations begin.
+
+        Unknown setting identifiers are ignored so backend-specific values remain
+        available if a different backend is selected later. Known settings are
+        validated against this backend's declarations.
+        """
+        ...
+
+    def apply_setting(self, setting: ValidatedCameraSetting) -> CameraSettingValue:
+        """Apply one validated setting when doing so is safe without restart.
+
+        Backends reject read-only, unsupported, or restart-required controls.
+        The returned value must be the value actually applied or reported, not
+        merely the submitted request.
+        """
+        ...
     def start(self) -> None:
         """Acquire the camera and make preview available.
 

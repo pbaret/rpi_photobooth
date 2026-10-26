@@ -31,6 +31,10 @@
       .error { margin: 0; color: #ffad9b; font-size: .92rem; }
       .notice { margin: 18px 0 0; padding: 12px; border-left: 4px solid #f1c84b; background: #282d28; }
       .notice.error { border-color: #ef8a76; }
+      .camera-meta { margin: 0; color: #aeb7ad; font-size: .9rem; }
+      .camera-control { padding-top: 12px; border-top: 1px solid #343b35; }
+      .camera-control:first-child { padding-top: 0; border-top: 0; }
+      .readonly-value { min-height: 46px; display: flex; align-items: center; color: #fff; }
       .diagnostics { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 10px 20px; margin: 0; }
       .diagnostics dt { color: #aeb7ad; }
       .diagnostics dd { margin: 0; overflow-wrap: anywhere; }
@@ -57,7 +61,8 @@
 
       {% if saved %}
       <p class="notice" role="status">Settings were saved.
-        {% if restart_required %}The selected camera backend is saved but requires an application restart.{% else %}All changed settings are active.{% endif %}
+        {% if restart_required %}The selected camera backend requires an application restart.{% endif %}
+        {% if camera_restart_required %}One or more camera settings are saved as requested and require a camera restart.{% elif not restart_required %}Changed settings are active.{% endif %}
       </p>
       {% elif restart_required %}
       <p class="notice" role="status">Saved camera backend: {{ persisted.startup.camera_backend.value }}. Active backend: {{ effective.startup.camera_backend.value }}. Restart the application to apply the saved backend.</p>
@@ -116,6 +121,42 @@
               {% if errors.get('camera_backend') %}<span class="error">{{ errors.get('camera_backend') }}</span>{% endif %}
             </label>
           </div>
+          {% if errors.get('camera') %}<p class="error" role="alert">{{ errors.get('camera') }}</p>{% endif %}
+          {% if camera_capabilities %}
+          <input type="hidden" name="camera_settings_present" value="true">
+          <div class="fields" aria-label="Active camera controls">
+            {% for capability in camera_capabilities %}
+            {% set setting_name = 'camera_setting_' ~ capability.identifier %}
+            {% set requested = 'Not applicable' if capability.read_only else (capability.requested_value if capability.requested_value is not none else capability.default_value) %}
+            {% set form_value = camera_values.get(capability.identifier, requested|string) %}
+            <div class="camera-control">
+              <label for="{{ setting_name }}">{{ capability.label }}
+                {% if capability.read_only %}
+                  <output id="{{ setting_name }}" class="readonly-value">{{ capability.effective_value if capability.effective_value is not none else 'Not reported' }}</output>
+                {% elif capability.value_type.value == 'boolean' %}
+                  <span class="check-row"><input id="{{ setting_name }}" name="{{ setting_name }}" type="checkbox" value="true" {% if form_value|lower == 'true' %}checked{% endif %}> Enabled</span>
+                {% elif capability.value_type.value == 'enum' %}
+                  <select id="{{ setting_name }}" name="{{ setting_name }}">
+                    {% for option in capability.allowed_values %}
+                    <option value="{{ option }}" {% if form_value == option|string %}selected{% endif %}>{{ option }}</option>
+                    {% endfor %}
+                  </select>
+                {% elif capability.value_type.value in ['integer', 'float'] %}
+                  <input id="{{ setting_name }}" name="{{ setting_name }}" type="number" value="{{ form_value }}" {% if capability.minimum is not none %}min="{{ capability.minimum }}"{% endif %} {% if capability.maximum is not none %}max="{{ capability.maximum }}"{% endif %} step="{{ capability.step if capability.step is not none else ('1' if capability.value_type.value == 'integer' else 'any') }}">
+                {% else %}
+                  <input id="{{ setting_name }}" name="{{ setting_name }}" type="text" value="{{ form_value }}">
+                {% endif %}
+              </label>
+              <p class="camera-meta">{{ capability.description }}</p>
+              <p class="camera-meta">Requested: {{ requested }}. Effective: {{ capability.effective_value if capability.effective_value is not none else 'Not reported' }}.</p>
+              {% if capability.restart_required %}<p class="camera-meta">Changing this setting requires a camera restart.</p>{% endif %}
+              {% if errors.get(setting_name) %}<span class="error" role="alert">{{ errors.get(setting_name) }}</span>{% endif %}
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p>No configurable controls are declared by the active camera backend.</p>
+          {% endif %}
         </fieldset>
 
         <fieldset>

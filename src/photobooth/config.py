@@ -2,8 +2,9 @@
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
+import math
 from pathlib import Path
 import tempfile
 from typing import cast
@@ -22,6 +23,9 @@ class CameraBackend(str, Enum):
     RPICAM = "rpicam"
 
 
+CameraSettingValue = bool | int | float | str
+
+
 @dataclass(frozen=True)
 class StartupConfig:
     """Hold deployment settings that take effect when the process starts."""
@@ -31,6 +35,9 @@ class StartupConfig:
     debug: bool = False
     data_root: Path = Path("data")
     camera_backend: CameraBackend = CameraBackend.SYNTHETIC
+    camera_settings: dict[str, CameraSettingValue] = field(
+        default_factory=lambda: dict[str, CameraSettingValue]()
+    )
     admin_secret: str | None = None
     public_base_url: str | None = None
     download_token_lifetime_seconds: int = 3600
@@ -47,6 +54,13 @@ class StartupConfig:
             validate_public_base_url(self.public_base_url)
         if self.download_token_lifetime_seconds < 1:
             raise ConfigurationError("download_token_lifetime_seconds must be positive")
+        if any(
+            not key
+            or type(value) not in {bool, int, float, str}
+            or (type(value) is float and not math.isfinite(value))
+            for key, value in self.camera_settings.items()
+        ):
+            raise ConfigurationError("camera_settings must contain scalar values and non-empty keys")
 
 
 @dataclass(frozen=True)
@@ -112,6 +126,7 @@ def load_configuration(
             "debug",
             "data_root",
             "camera_backend",
+            "camera_settings",
             "admin_secret",
             "public_base_url",
             "download_token_lifetime_seconds",
@@ -135,6 +150,7 @@ def load_configuration(
         debug=_boolean_value(startup_values, "debug", False),
         data_root=data_root,
         camera_backend=_camera_backend_value(startup_values),
+        camera_settings=_camera_settings_value(startup_values),
         admin_secret=os.environ.get("PHOTOBOOTH_ADMIN_SECRET"),
         public_base_url=_optional_string_value(startup_values, "public_base_url"),
         download_token_lifetime_seconds=_integer_value(
@@ -187,6 +203,7 @@ def save_configuration(configuration: ApplicationConfig) -> None:
             "debug": startup.debug,
             "data_root": str(startup.data_root),
             "camera_backend": startup.camera_backend.value,
+            "camera_settings": startup.camera_settings,
             "public_base_url": startup.public_base_url,
             "download_token_lifetime_seconds": startup.download_token_lifetime_seconds,
         },
@@ -303,6 +320,31 @@ def _camera_backend_value(values: dict[str, object]) -> CameraBackend:
         return CameraBackend(value)
     except ValueError as error:
         raise ConfigurationError(f"unknown camera backend: {value}") from error
+
+
+def _camera_settings_value(values: dict[str, object]) -> dict[str, CameraSettingValue]:
+    """Decode a scalar setting map while retaining backend-specific identifiers."""
+    raw_settings = values.get("camera_settings", {})
+    if not isinstance(raw_settings, dict):
+        raise ConfigurationError("camera_settings must be an object")
+    raw_mapping = cast(dict[object, object], raw_settings)
+    settings: dict[str, CameraSettingValue] = {}
+    for key, value in raw_mapping.items():
+        if not isinstance(key, str) or not key:
+            raise ConfigurationError("camera_settings keys must be non-empty strings")
+        if type(value) is bool:
+            settings[key] = value
+        elif type(value) is int:
+            settings[key] = value
+        elif type(value) is float:
+            if not math.isfinite(value):
+                raise ConfigurationError(f"camera_settings.{key} must be finite")
+            settings[key] = value
+        elif isinstance(value, str):
+            settings[key] = value
+        else:
+            raise ConfigurationError(f"camera_settings.{key} must be a scalar value")
+    return settings
 
 
 def _optional_string_value(values: dict[str, object], name: str) -> str | None:

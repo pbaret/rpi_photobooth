@@ -7,8 +7,12 @@ import pytest
 from photobooth.camera import (
     CameraBackend,
     CameraOperationError,
+    CameraSettingCapability,
+    CameraSettingValue,
     CameraUnavailableError,
+    ValidatedCameraSetting,
 )
+from collections.abc import Mapping
 
 
 class FakeCameraBackend:
@@ -17,6 +21,18 @@ class FakeCameraBackend:
     def __init__(self) -> None:
         """Initialize the fake with no active camera resources."""
         self._started = False
+
+    def get_capabilities(self) -> tuple[CameraSettingCapability, ...]:
+        """Declare no configurable camera controls for this minimal fake."""
+        return ()
+
+    def configure_settings(self, settings: Mapping[str, CameraSettingValue]) -> None:
+        """Ignore saved requests because this contract fake declares no controls."""
+        del settings
+
+    def apply_setting(self, setting: ValidatedCameraSetting) -> CameraSettingValue:
+        """Reject settings because this fake does not declare any capabilities."""
+        raise ValueError(f"unsupported setting: {setting.identifier}")
 
     def start(self) -> None:
         """Make preview available; repeated starts retain the same state."""

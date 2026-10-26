@@ -37,6 +37,7 @@ def create_app(
         if camera_backend is not None
         else _create_camera_backend(active_configuration.startup.camera_backend)
     )
+    active_camera.configure_settings(active_configuration.startup.camera_settings)
     active_gallery = (
         gallery_service
         if gallery_service is not None
@@ -47,6 +48,7 @@ def create_app(
     app.config["DEBUG"] = active_configuration.startup.debug
     app.extensions["photobooth.configuration"] = active_configuration
     app.extensions["photobooth.persisted_configuration"] = active_configuration
+    app.extensions["photobooth.camera"] = active_camera
     app.extensions["photobooth.gallery"] = active_gallery
     app.extensions["photobooth.downloads"] = DownloadService(
         active_configuration.startup.data_root,

@@ -262,6 +262,13 @@ the camera backend.
 
 The backend must expose this difference where practical.
 
+The persisted startup section may contain a `camera_settings` object with
+boolean, numeric, or string values keyed by stable setting identifiers. The
+active backend validates only identifiers it declares. Other entries are
+preserved during saves so they can be reused if their owning backend is
+selected later; they are not exposed as supported controls while that backend
+is inactive.
+
 ### preview_mirror
 
 Type:
@@ -416,6 +423,16 @@ shown as applied only after the backend confirms it. Unsupported or
 unconfirmed settings remain distinguishable from successfully applied ones.
 Changing a setting that requires a camera or preview restart must not be
 reported as effective until that lifecycle transition succeeds.
+
+Concrete backends own their capability declarations and validation
+constraints. The admin page uses those declarations to choose native controls
+and validates submissions on the server. Read-only capabilities are displayed
+as status and cannot be submitted as changes. The app does not restart a
+camera implicitly: a restart-required request is persisted as requested,
+while the effective value remains the backend's previous readback or unknown
+until the backend applies it. OpenCV currently declares preview width, preview
+height, and software preview mirroring. Synthetic declarations are test
+controls, not physical camera capabilities.
 
 ---
 

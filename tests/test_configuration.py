@@ -62,6 +62,11 @@ def test_startup_settings_are_loaded_from_json(
                     "debug": False,
                     "data_root": str(tmp_path / "photos"),
                     "camera_backend": "opencv",
+                    "camera_settings": {
+                        "preview_width": 1280,
+                        "synthetic_scene": "colorful",
+                        "future_setting": True,
+                    },
                     "admin_secret": "local-secret",
                     "public_base_url": "http://192.168.1.42:5000",
                     "download_token_lifetime_seconds": 900,
@@ -79,6 +84,11 @@ def test_startup_settings_are_loaded_from_json(
     assert not configuration.startup.debug
     assert configuration.startup.data_root == tmp_path / "photos"
     assert configuration.startup.camera_backend is CameraBackend.OPENCV
+    assert configuration.startup.camera_settings == {
+        "preview_width": 1280,
+        "synthetic_scene": "colorful",
+        "future_setting": True,
+    }
     assert configuration.startup.admin_secret == "deployment-secret"
     assert configuration.startup.public_base_url == "http://192.168.1.42:5000"
     assert configuration.startup.download_token_lifetime_seconds == 900
@@ -224,3 +234,19 @@ def test_booth_save_preserves_settings_without_persisting_secrets(
     assert configuration.booth.booth_name == "After"
     persisted = json.loads(config_path.read_text(encoding="utf-8"))
     assert "admin_secret" not in persisted["startup"]
+
+
+def test_unsupported_camera_settings_survive_load_and_save(tmp_path: Path) -> None:
+    """Backend-specific requests remain persisted even when this process cannot interpret them."""
+    config_path = tmp_path / "config.json"
+    camera_settings = {"future_lens_control": 2.5, "preview_width": 1280}
+    config_path.write_text(
+        json.dumps({"startup": {"camera_settings": camera_settings}}),
+        encoding="utf-8",
+    )
+
+    configuration = load_configuration(config_path)
+    save_booth_settings(config_path, configuration.booth)
+
+    persisted = json.loads(config_path.read_text(encoding="utf-8"))
+    assert persisted["startup"]["camera_settings"] == camera_settings

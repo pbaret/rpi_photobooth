@@ -9,8 +9,10 @@ from PIL import Image
 from photobooth.camera import (
     CameraBackend,
     CameraOperationError,
+    CameraSettingType,
     CameraUnavailableError,
     SyntheticCameraBackend,
+    ValidatedCameraSetting,
 )
 
 
@@ -79,3 +81,46 @@ def test_capture_failure_stops_preview(tmp_path: Path) -> None:
 
     with pytest.raises(CameraUnavailableError):
         backend.preview_frame()
+
+
+def test_synthetic_capabilities_cover_test_control_shapes() -> None:
+    """Synthetic-only declarations cover editable, enumerated, readonly, and restart controls."""
+    backend = SyntheticCameraBackend()
+    capabilities = {item.identifier: item for item in backend.get_capabilities()}
+
+    assert capabilities["synthetic_overlay"].value_type is CameraSettingType.BOOLEAN
+    assert capabilities["synthetic_quality"].minimum == 30
+    assert capabilities["synthetic_quality"].maximum == 95
+    assert capabilities["synthetic_scene"].allowed_values == ("classic", "colorful")
+    assert capabilities["synthetic_scene"].restart_required
+    assert capabilities["synthetic_running"].read_only
+
+
+def test_synthetic_live_setting_is_effective_but_restart_setting_is_not_applied() -> None:
+    """Live requests update effective state while restart-required requests are rejected for immediate apply."""
+    backend = SyntheticCameraBackend()
+
+    effective_value = backend.apply_setting(
+        ValidatedCameraSetting("synthetic_overlay", False)
+    )
+    assert effective_value is False
+    capabilities = {item.identifier: item for item in backend.get_capabilities()}
+    assert capabilities["synthetic_overlay"].requested_value is False
+    assert capabilities["synthetic_overlay"].effective_value is False
+
+    with pytest.raises(ValueError, match="without restart"):
+        backend.apply_setting(ValidatedCameraSetting("synthetic_scene", "colorful"))
+    with pytest.raises(ValueError, match="read-only"):
+        backend.apply_setting(ValidatedCameraSetting("synthetic_running", True))
+
+
+def test_saved_supported_synthetic_request_is_configured_at_startup() -> None:
+    """A new backend loads its declared persisted value while ignoring unknown keys."""
+    backend = SyntheticCameraBackend()
+    backend.configure_settings(
+        {"synthetic_scene": "colorful", "future_camera_setting": 42}
+    )
+
+    capabilities = {item.identifier: item for item in backend.get_capabilities()}
+    assert capabilities["synthetic_scene"].requested_value == "colorful"
+    assert capabilities["synthetic_scene"].effective_value == "colorful"

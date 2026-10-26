@@ -342,6 +342,22 @@ The backend owns any camera handle or child process it creates. The service
 owns the application-controlled output path and is responsible for validating
 and publishing the resulting image.
 
+Each backend declares its supported controls through typed capability
+records. A capability describes a stable identifier, value shape, default,
+applicable constraints, optional requested and effective values, read-only
+status, and restart requirements. Capabilities belong to the backend;
+persisted configuration alone does not establish support.
+
+The administration route validates submitted values against the active
+backend's declarations before persistence. A validated request is distinct
+from the persisted requested value and from the effective value reported by
+the backend. Only controls the backend can safely apply immediately are sent
+to its live-apply operation. Restart-required requests are saved without
+being reported as effective until the backend applies or reports them after
+restart. Read-only controls are status only. Unknown persisted identifiers
+are retained for possible future backend reuse, but are neither displayed as
+controls nor treated as supported by the active backend.
+
 ---
 
 ## 9. Camera backends
@@ -357,6 +373,10 @@ Purpose:
 It generates valid JPEG preview and capture images.
 
 It should mimic the observable lifecycle of a real camera where practical.
+
+It also declares test-only controls that exercise boolean, bounded numeric,
+enum, read-only, and restart-required behavior. These are not claims about
+physical camera hardware.
 
 ### OpenCVCameraBackend
 
@@ -378,6 +398,12 @@ The backend is responsible for:
 - synchronization around VideoCapture.
 
 The webcam must not be opened during module import.
+
+OpenCVCameraBackend currently declares only requested preview width, requested
+preview height, and software preview mirroring. Resolution readbacks are
+reported only while the device is active. Generic exposure, focus, and image
+controls are not advertised unless a future implementation can reliably apply
+and report them.
 
 ### RpicamCameraBackend
 

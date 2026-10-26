@@ -9,7 +9,13 @@ from flask import Flask
 import pytest
 
 from photobooth.app import create_app
-from photobooth.config import ApplicationConfig, BoothSettings, StartupConfig
+from photobooth.camera import OpenCVCameraBackend
+from photobooth.config import (
+    ApplicationConfig,
+    BoothSettings,
+    CameraBackend as CameraBackendKind,
+    StartupConfig,
+)
 from photobooth.services.preview import PreviewService
 
 
@@ -171,6 +177,150 @@ def test_admin_updates_are_post_only_and_diagnostics_are_non_sensitive(
     assert b"deployment-secret" not in response.data
     assert b"download_tokens" not in response.data
     assert b"config.json" not in response.data
+
+
+def test_camera_controls_render_from_synthetic_capabilities(tmp_path: Path) -> None:
+    """The active synthetic backend chooses native controls and read-only presentation."""
+    client = _app(tmp_path).test_client()
+    response = client.get("/admin", headers=_auth_header("deployment-secret"))
+
+    assert response.status_code == 200
+    assert b'name="camera_setting_synthetic_overlay" type="checkbox"' in response.data
+    assert b'name="camera_setting_synthetic_quality" type="number"' in response.data
+    assert b'name="camera_setting_synthetic_scene"' in response.data
+    assert b'id="camera_setting_synthetic_running" class="readonly-value"' in response.data
+    assert b"Requested: Not applicable. Effective: False." in response.data
+    assert b'camera_setting_preview_width' not in response.data
+    assert b'Changing this setting requires a camera restart.' in response.data
+
+
+def test_live_camera_value_is_persisted_and_reported_as_effective(tmp_path: Path) -> None:
+    """A validated live synthetic control updates requested and effective values."""
+    app = _app(tmp_path)
+    client = app.test_client()
+    response = client.post(
+        "/admin/settings",
+        data=_form(camera_settings_present="true", camera_setting_synthetic_overlay="true"),
+        headers=_auth_header("deployment-secret"),
+    )
+
+    assert response.status_code == 303
+    page = client.get(response.headers["Location"], headers=_auth_header("deployment-secret"))
+    assert b"Requested: True. Effective: True." in page.data
+    persisted = cast(ApplicationConfig, app.extensions["photobooth.persisted_configuration"])
+    effective = cast(ApplicationConfig, app.extensions["photobooth.configuration"])
+    assert persisted.startup.camera_settings["synthetic_overlay"] is True
+    assert effective.startup.camera_settings["synthetic_overlay"] is True
+    _close_preview(app)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("synthetic_quality", "31"),
+        ("synthetic_scene", "not-declared"),
+        ("synthetic_running", "true"),
+    ],
+)
+def test_invalid_camera_values_are_rejected_without_persistence(
+    tmp_path: Path, field: str, value: str
+) -> None:
+    """Bounds, enum membership, and read-only declarations are enforced server-side."""
+    app = _app(tmp_path)
+    client = app.test_client()
+    configuration_path = cast(
+        ApplicationConfig, app.extensions["photobooth.persisted_configuration"]
+    ).config_path
+
+    response = client.post(
+        "/admin/settings",
+        data=_form(**{f"camera_setting_{field}": value}),
+        headers=_auth_header("deployment-secret"),
+    )
+
+    assert response.status_code == 400
+    assert field.encode() in response.data
+    assert not configuration_path.exists()
+    _close_preview(app)
+
+
+def test_restart_setting_keeps_requested_and_effective_values_distinct(
+    tmp_path: Path,
+) -> None:
+    """A restart-required request is saved without claiming that the backend applied it."""
+    app = _app(tmp_path)
+    client = app.test_client()
+    response = client.post(
+        "/admin/settings",
+        data=_form(camera_setting_synthetic_scene="colorful"),
+        headers=_auth_header("deployment-secret"),
+    )
+
+    assert response.status_code == 303
+    page = client.get(response.headers["Location"], headers=_auth_header("deployment-secret"))
+    assert b"Requested: colorful. Effective: classic." in page.data
+    assert b"requires a camera restart" in page.data
+    persisted = cast(ApplicationConfig, app.extensions["photobooth.persisted_configuration"])
+    effective = cast(ApplicationConfig, app.extensions["photobooth.configuration"])
+    assert persisted.startup.camera_settings["synthetic_scene"] == "colorful"
+    assert effective.startup.camera_settings.get("synthetic_scene") is None
+    _close_preview(app)
+
+
+def test_unsupported_camera_setting_is_preserved_but_not_rendered(tmp_path: Path) -> None:
+    """Synthetic ignores OpenCV/future requests without deleting or presenting them."""
+    settings: dict[str, bool | int | float | str] = {
+        "preview_width": 1280,
+        "future_control": "retain-me",
+    }
+    configuration_path = tmp_path / "config.json"
+    configuration = ApplicationConfig(
+        startup=StartupConfig(
+            data_root=tmp_path / "data",
+            admin_secret="deployment-secret",
+            camera_settings=settings,
+        ),
+        booth=BoothSettings(),
+        config_path=configuration_path,
+    )
+    app = create_app(configuration=configuration)
+    client = app.test_client()
+
+    page = client.get("/admin", headers=_auth_header("deployment-secret"))
+    assert page.status_code == 200
+    assert b"camera_setting_preview_width" not in page.data
+    response = client.post(
+        "/admin/settings", data=_form(), headers=_auth_header("deployment-secret")
+    )
+    assert response.status_code == 303
+    stored = json.loads(configuration_path.read_text(encoding="utf-8"))
+    assert stored["startup"]["camera_settings"] == settings
+    _close_preview(app)
+
+
+def test_opencv_admin_exposes_only_declared_controls(tmp_path: Path) -> None:
+    """OpenCV presents implemented dimensions and software mirror, not synthetic or future controls."""
+    configuration = ApplicationConfig(
+        startup=StartupConfig(
+            data_root=tmp_path / "data",
+            admin_secret="deployment-secret",
+            camera_backend=CameraBackendKind.OPENCV,
+        ),
+        booth=BoothSettings(),
+        config_path=tmp_path / "config.json",
+    )
+    app = create_app(configuration=configuration, camera_backend=OpenCVCameraBackend())
+    client = app.test_client()
+    page = client.get("/admin", headers=_auth_header("deployment-secret"))
+
+    assert page.status_code == 200
+    assert b"camera_setting_preview_width" in page.data
+    assert b"camera_setting_preview_height" in page.data
+    assert b"camera_setting_preview_mirror" in page.data
+    assert b"camera_setting_synthetic_overlay" not in page.data
+    assert b"autofocus" not in page.data
+    assert b"One or more camera settings are saved as requested" not in page.data
+    _close_preview(app)
 
 
 def test_blank_url_is_allowed_and_invalid_url_is_reported(tmp_path: Path) -> None:
