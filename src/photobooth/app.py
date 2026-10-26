@@ -46,6 +46,7 @@ def create_app(
     app = Flask(__name__)
     app.config["DEBUG"] = active_configuration.startup.debug
     app.extensions["photobooth.configuration"] = active_configuration
+    app.extensions["photobooth.persisted_configuration"] = active_configuration
     app.extensions["photobooth.gallery"] = active_gallery
     app.extensions["photobooth.downloads"] = DownloadService(
         active_configuration.startup.data_root,

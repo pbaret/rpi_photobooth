@@ -671,21 +671,33 @@ configuration.
 
 ### admin_secret
 
-The admin secret is optional startup configuration stored as
-`startup.admin_secret` in the local JSON file. Keep the local `config.json`
-uncommitted and restrict access to it on shared systems.
+The optional secret is supplied through the `PHOTOBOOTH_ADMIN_SECRET` process
+environment variable. It is deployment configuration and is not loaded from or
+written to the runtime JSON file. Legacy `startup.admin_secret` JSON values are
+ignored.
 
-The secret must:
+The `/admin` interface uses HTTP Basic authentication with the fixed username
+`admin` and a constant-time password comparison. This is lightweight
+protection for normal booth users on a trusted local network, not
+Internet-facing authentication. Use a protected transport on untrusted
+networks. The secret must:
 
 - not be committed;
 - not be logged;
 - not be included in diagnostics;
 - not be returned by health endpoints.
 
-Version 1 only requires lightweight protection suitable for a trusted local
-network.
+Admin updates validate the complete candidate using the existing typed
+configuration models, then use the shared atomic JSON persistence operation.
+Failed validation or persistence leaves prior settings active. Booth settings,
+the public download origin, and token lifetime apply immediately. Changing the
+camera backend is persisted but requires an application restart; it is not
+reported as active before restart.
 
-It is not intended to provide Internet-facing authentication.
+Diagnostics expose only active and saved camera backend names, managed photo
+count, configured public base URL, and printer backend class. They omit
+secrets, tokens, filesystem paths, environment variables, raw subprocess
+output, and camera status not available through the current backend contract.
 
 ---
 
@@ -912,18 +924,18 @@ becoming user configuration.
 
 ## 36. Initial implementation behavior
 
-The typed configuration boundary currently implements startup settings for
-bind host, port, debug mode, data root, camera backend and the optional admin
-secret. Runtime JSON settings are booth name, countdown, idle timeout,
-slideshow enabled and slideshow interval. Unsupported or unknown JSON keys are
-rejected rather than silently ignored.
+The typed configuration boundary implements startup settings for bind host,
+port, debug mode, data root, camera backend, public base URL, and download-token
+lifetime. The admin secret is sourced separately from
+`PHOTOBOOTH_ADMIN_SECRET`. Runtime JSON also stores booth name, countdown, idle
+timeout, slideshow enabled, and slideshow interval. Unsupported or unknown
+JSON keys are rejected rather than silently ignored.
 
-Startup settings are read when the Flask application is created and require an
-application restart to change their effective values. Booth settings are
-persisted separately and do not require a camera restart; an external edit to
-the JSON file is picked up on the next application start. A future admin
-workflow must publish a changed in-memory value only after its atomic save
-succeeds.
+The application factory loads settings once. Admin updates publish new
+request-time booth and download settings only after atomic persistence
+succeeds. Those values take effect immediately; camera backend selection is
+persisted but takes effect only after an application restart. A process restart
+loads all persisted settings from the JSON file.
 
 Saving writes a validated complete JSON document to a temporary file beside
 the destination, flushes it, then replaces the destination atomically. A

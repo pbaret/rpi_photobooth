@@ -14,6 +14,10 @@ the available options:
 
     uv run python -m photobooth
 
+Set `PHOTOBOOTH_ADMIN_SECRET` in the process environment to enable the
+protected `/admin` interface. The secret is deployment configuration and is
+never stored in `config.json`.
+
 Run the automated checks:
 
     uv run pyright

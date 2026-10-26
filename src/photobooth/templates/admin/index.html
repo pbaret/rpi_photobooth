@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Photobooth administration</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: system-ui, sans-serif;
+        background: #171a18;
+        color: #f5f6f3;
+        accent-color: #f1c84b;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-height: 100dvh; }
+      main { width: min(100%, 960px); margin: 0 auto; padding: 20px 16px 40px; }
+      header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+      h1 { margin: 0; font-size: 1.6rem; }
+      h2 { margin: 0 0 16px; font-size: 1.1rem; }
+      a { color: #f1c84b; }
+      .back-link, button { min-height: 48px; display: inline-flex; align-items: center; justify-content: center; }
+      .back-link { padding: 0 12px; border: 1px solid #647064; border-radius: 4px; text-decoration: none; }
+      form { margin-top: 20px; }
+      fieldset { margin: 0; padding: 20px 0; border: 0; border-top: 1px solid #566057; }
+      .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 20px; }
+      label { display: grid; align-content: start; gap: 7px; min-width: 0; color: #d6dbd3; }
+      input, select { width: 100%; min-height: 46px; padding: 9px 11px; border: 1px solid #747d73; border-radius: 3px; background: #242925; color: #fff; font: inherit; }
+      input[type="checkbox"] { width: 24px; height: 24px; min-height: 24px; accent-color: #f1c84b; }
+      .check-row { display: flex; align-items: center; gap: 10px; min-height: 46px; }
+      .error { margin: 0; color: #ffad9b; font-size: .92rem; }
+      .notice { margin: 18px 0 0; padding: 12px; border-left: 4px solid #f1c84b; background: #282d28; }
+      .notice.error { border-color: #ef8a76; }
+      .diagnostics { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 10px 20px; margin: 0; }
+      .diagnostics dt { color: #aeb7ad; }
+      .diagnostics dd { margin: 0; overflow-wrap: anywhere; }
+      .actions { display: flex; justify-content: flex-end; padding-top: 18px; border-top: 1px solid #566057; }
+      button { min-width: 180px; padding: 10px 20px; border: 0; border-radius: 4px; background: #f1c84b; color: #171a18; font: inherit; font-weight: 700; touch-action: manipulation; }
+      :focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+      @media (max-width: 600px) {
+        main { padding-top: 14px; }
+        header { align-items: flex-start; }
+        h1 { font-size: 1.35rem; }
+        .fields { grid-template-columns: minmax(0, 1fr); }
+        .diagnostics { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+        .diagnostics dd { margin-bottom: 9px; }
+        .actions button { width: 100%; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Photobooth administration</h1>
+        <a class="back-link" href="{{ url_for('booth.index') }}">Return to booth</a>
+      </header>
+
+      {% if saved %}
+      <p class="notice" role="status">Settings were saved.
+        {% if restart_required %}The selected camera backend is saved but requires an application restart.{% else %}All changed settings are active.{% endif %}
+      </p>
+      {% elif restart_required %}
+      <p class="notice" role="status">Saved camera backend: {{ persisted.startup.camera_backend.value }}. Active backend: {{ effective.startup.camera_backend.value }}. Restart the application to apply the saved backend.</p>
+      {% endif %}
+      {% if errors.get('form') %}<p class="notice error" role="alert">{{ errors.get('form') }}</p>{% endif %}
+
+      <form action="{{ url_for('admin.update_settings') }}" method="post">
+        <fieldset>
+          <legend><h2>Booth</h2></legend>
+          <div class="fields">
+            <label for="booth_name">Booth name
+              <input id="booth_name" name="booth_name" type="text" required value="{{ values.booth_name }}" aria-invalid="{{ 'true' if errors.get('booth_name') else 'false' }}">
+              {% if errors.get('booth_name') %}<span class="error">{{ errors.get('booth_name') }}</span>{% endif %}
+            </label>
+            <label for="countdown_seconds">Countdown (seconds)
+              <input id="countdown_seconds" name="countdown_seconds" type="number" min="0" max="30" step="1" required value="{{ values.countdown_seconds }}" aria-invalid="{{ 'true' if errors.get('countdown_seconds') else 'false' }}">
+              {% if errors.get('countdown_seconds') %}<span class="error">{{ errors.get('countdown_seconds') }}</span>{% endif %}
+            </label>
+            <label for="idle_timeout_seconds">Inactivity timeout (seconds)
+              <input id="idle_timeout_seconds" name="idle_timeout_seconds" type="number" min="0" step="1" required value="{{ values.idle_timeout_seconds }}" aria-invalid="{{ 'true' if errors.get('idle_timeout_seconds') else 'false' }}">
+              {% if errors.get('idle_timeout_seconds') %}<span class="error">{{ errors.get('idle_timeout_seconds') }}</span>{% endif %}
+            </label>
+            <label for="slideshow_interval_seconds">Slideshow interval (seconds)
+              <input id="slideshow_interval_seconds" name="slideshow_interval_seconds" type="number" min="1" step="1" required value="{{ values.slideshow_interval_seconds }}" aria-invalid="{{ 'true' if errors.get('slideshow_interval_seconds') else 'false' }}">
+              {% if errors.get('slideshow_interval_seconds') %}<span class="error">{{ errors.get('slideshow_interval_seconds') }}</span>{% endif %}
+            </label>
+            <label for="slideshow_enabled">Slideshow
+              <span class="check-row"><input id="slideshow_enabled" name="slideshow_enabled" type="checkbox" value="true" {% if values.slideshow_enabled %}checked{% endif %}> Enabled</span>
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend><h2>Network and downloads</h2></legend>
+          <div class="fields">
+            <label for="public_base_url">Public base URL
+              <input id="public_base_url" name="public_base_url" type="url" placeholder="http://photobooth.local:5000" value="{{ values.public_base_url }}" aria-invalid="{{ 'true' if errors.get('public_base_url') else 'false' }}">
+              {% if errors.get('public_base_url') %}<span class="error">{{ errors.get('public_base_url') }}</span>{% endif %}
+            </label>
+            <label for="download_token_lifetime_seconds">Download-token lifetime (seconds)
+              <input id="download_token_lifetime_seconds" name="download_token_lifetime_seconds" type="number" min="1" step="1" required value="{{ values.download_token_lifetime_seconds }}" aria-invalid="{{ 'true' if errors.get('download_token_lifetime_seconds') else 'false' }}">
+              {% if errors.get('download_token_lifetime_seconds') %}<span class="error">{{ errors.get('download_token_lifetime_seconds') }}</span>{% endif %}
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend><h2>Camera</h2></legend>
+          <div class="fields">
+            <label for="camera_backend">Camera backend
+              <select id="camera_backend" name="camera_backend" aria-invalid="{{ 'true' if errors.get('camera_backend') else 'false' }}">
+                <option value="synthetic" {% if values.camera_backend == 'synthetic' %}selected{% endif %}>Synthetic</option>
+                <option value="opencv" {% if values.camera_backend == 'opencv' %}selected{% endif %}>OpenCV</option>
+                {% if values.camera_backend == 'rpicam' %}<option value="rpicam" selected disabled>rpicam (not implemented)</option>{% endif %}
+              </select>
+              {% if errors.get('camera_backend') %}<span class="error">{{ errors.get('camera_backend') }}</span>{% endif %}
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend><h2>Printing</h2></legend>
+          <p>Active printer backend: {{ printer_name }}. No additional printing settings are currently supported.</p>
+        </fieldset>
+
+        <fieldset>
+          <legend><h2>Diagnostics</h2></legend>
+          <dl class="diagnostics">
+            <dt>Active camera backend</dt><dd>{{ effective.startup.camera_backend.value }}</dd>
+            <dt>Saved camera backend</dt><dd>{{ persisted.startup.camera_backend.value }}</dd>
+            <dt>Managed photos</dt><dd>{{ photo_count if photo_count is not none else 'Unavailable' }}</dd>
+            <dt>Public base URL</dt><dd>{{ persisted.startup.public_base_url or 'Not configured' }}</dd>
+            <dt>Printer backend</dt><dd>{{ printer_name }}</dd>
+          </dl>
+        </fieldset>
+
+        <div class="actions"><button type="submit">Save settings</button></div>
+      </form>
+    </main>
+  </body>
+</html>

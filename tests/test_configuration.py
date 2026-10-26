@@ -47,8 +47,11 @@ def test_default_path_loads_config_json_from_working_directory(
     assert configuration.startup.port == 8081
 
 
-def test_startup_settings_are_loaded_from_json(tmp_path: Path) -> None:
-    """Startup settings and booth settings share one configuration document."""
+def test_startup_settings_are_loaded_from_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """JSON provides operational settings while the admin secret comes from env."""
+    monkeypatch.setenv("PHOTOBOOTH_ADMIN_SECRET", "deployment-secret")
     config_path = tmp_path / "config.json"
     config_path.write_text(
         json.dumps(
@@ -76,7 +79,7 @@ def test_startup_settings_are_loaded_from_json(tmp_path: Path) -> None:
     assert not configuration.startup.debug
     assert configuration.startup.data_root == tmp_path / "photos"
     assert configuration.startup.camera_backend is CameraBackend.OPENCV
-    assert configuration.startup.admin_secret == "local-secret"
+    assert configuration.startup.admin_secret == "deployment-secret"
     assert configuration.startup.public_base_url == "http://192.168.1.42:5000"
     assert configuration.startup.download_token_lifetime_seconds == 900
     assert configuration.booth.booth_name == "Family booth"
@@ -190,8 +193,11 @@ def test_failed_atomic_replacement_preserves_existing_file(
     assert not list(tmp_path.glob(".*.tmp"))
 
 
-def test_booth_save_preserves_startup_settings(tmp_path: Path) -> None:
-    """Updating booth settings does not erase startup configuration."""
+def test_booth_save_preserves_settings_without_persisting_secrets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Updating booth settings retains operational values but omits secrets."""
+    monkeypatch.setenv("PHOTOBOOTH_ADMIN_SECRET", "deployment-secret")
     config_path = tmp_path / "config.json"
     config_path.write_text(
         json.dumps(
@@ -212,7 +218,9 @@ def test_booth_save_preserves_startup_settings(tmp_path: Path) -> None:
 
     configuration = load_configuration(config_path)
     assert configuration.startup.port == 8080
-    assert configuration.startup.admin_secret == "local-secret"
+    assert configuration.startup.admin_secret == "deployment-secret"
     assert configuration.startup.public_base_url == "http://192.168.1.42:5000"
     assert configuration.startup.download_token_lifetime_seconds == 900
     assert configuration.booth.booth_name == "After"
+    persisted = json.loads(config_path.read_text(encoding="utf-8"))
+    assert "admin_secret" not in persisted["startup"]

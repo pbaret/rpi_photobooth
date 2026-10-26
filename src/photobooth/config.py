@@ -135,7 +135,7 @@ def load_configuration(
         debug=_boolean_value(startup_values, "debug", False),
         data_root=data_root,
         camera_backend=_camera_backend_value(startup_values),
-        admin_secret=_optional_string_value(startup_values, "admin_secret"),
+        admin_secret=os.environ.get("PHOTOBOOTH_ADMIN_SECRET"),
         public_base_url=_optional_string_value(startup_values, "public_base_url"),
         download_token_lifetime_seconds=_integer_value(
             startup_values, "download_token_lifetime_seconds", 3600
@@ -158,10 +158,28 @@ def save_booth_settings(config_path: Path, settings: BoothSettings) -> None:
 
     The temporary file is created beside the destination so replacement stays
     on the same filesystem. If writing or replacement fails, the prior file is
-    left intact and the temporary file is removed when possible. Existing
-    startup settings, including the optional admin secret, are preserved.
+    left intact and the temporary file is removed when possible. Deployment
+    secrets are never copied into the persisted document.
     """
-    startup = load_configuration(config_path).startup
+    current = load_configuration(config_path)
+    save_configuration(
+        ApplicationConfig(
+            startup=current.startup,
+            booth=settings,
+            config_path=config_path,
+        )
+    )
+
+
+def save_configuration(configuration: ApplicationConfig) -> None:
+    """Atomically persist validated settings without deployment secrets.
+
+    Startup values that are part of the editable application configuration
+    retain their existing names. ``admin_secret`` is deliberately sourced only
+    from the deployment environment and is never serialized.
+    """
+    startup = configuration.startup
+    settings = configuration.booth
     payload = {
         "startup": {
             "bind_host": startup.bind_host,
@@ -169,7 +187,6 @@ def save_booth_settings(config_path: Path, settings: BoothSettings) -> None:
             "debug": startup.debug,
             "data_root": str(startup.data_root),
             "camera_backend": startup.camera_backend.value,
-            "admin_secret": startup.admin_secret,
             "public_base_url": startup.public_base_url,
             "download_token_lifetime_seconds": startup.download_token_lifetime_seconds,
         },
@@ -181,6 +198,7 @@ def save_booth_settings(config_path: Path, settings: BoothSettings) -> None:
             "slideshow_interval_seconds": settings.slideshow_interval_seconds,
         },
     }
+    config_path = configuration.config_path
     config_path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path: Path | None = None
     try:
