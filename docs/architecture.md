@@ -580,6 +580,13 @@ validation.
 The first interaction used to exit the slideshow must not immediately trigger
 a capture.
 
+Inactivity is tracked in the booth page for pointer, keyboard, and wheel
+activity and is armed only in IDLE. Leaving IDLE cancels that timer, so it
+cannot affect the separate capture countdown. The first activity event during
+SLIDESHOW is consumed before it can reach booth controls. The page fetches the
+GalleryService thumbnail list on entry and refreshes it every minute while
+active; an empty list leaves the instruction visible without rapid retries.
+
 Only one capture operation may run at a time.
 
 Duplicate or concurrent capture requests must be rejected.

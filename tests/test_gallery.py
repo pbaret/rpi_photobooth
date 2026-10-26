@@ -101,6 +101,28 @@ def test_delete_invalidates_media_and_cleans_thumbnail(tmp_path: Path) -> None:
         gallery.delete_photo(photo.photo_id)
 
 
+def test_list_photos_returns_thumbnail_eligible_photos_in_capture_order(
+    tmp_path: Path,
+) -> None:
+    """The slideshow list excludes deleted items and has deterministic ordering."""
+    source_path = tmp_path / "capture.jpg"
+    Image.new("RGB", (64, 48), color=(180, 80, 30)).save(source_path, format="JPEG")
+    gallery = GalleryService(tmp_path / "data")
+    first = gallery.register_captured_photo(source_path)
+    second = gallery.register_captured_photo(source_path)
+
+    listed = gallery.list_photos()
+
+    assert listed == sorted(
+        [first, second], key=lambda photo: (photo.captured_at, photo.photo_id)
+    )
+    gallery.delete_photo(first.photo_id)
+
+    listed = gallery.list_photos()
+
+    assert listed == [second]
+
+
 def test_capture_review_print_retake_and_delete_routes(tmp_path: Path) -> None:
     """Review actions use POST and preserve or invalidate managed media correctly."""
 

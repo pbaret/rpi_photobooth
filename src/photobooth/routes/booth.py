@@ -44,8 +44,32 @@ def index() -> str:
     return render_template(
         "booth/index.html",
         countdown_seconds=configuration.booth.countdown_seconds,
+        idle_timeout_seconds=configuration.booth.idle_timeout_seconds,
+        slideshow_enabled=configuration.booth.slideshow_enabled,
+        slideshow_interval_seconds=configuration.booth.slideshow_interval_seconds,
         booth_name=configuration.booth.booth_name,
         notice=_booth_notice(),
+    )
+
+
+@booth_blueprint.get("/slideshow/photos.json")
+def slideshow_photos() -> ResponseReturnValue:
+    """Return currently managed slideshow thumbnails in capture order."""
+    configuration = cast(
+        ApplicationConfig, current_app.extensions["photobooth.configuration"]
+    )
+    if not configuration.booth.slideshow_enabled:
+        return jsonify(thumbnails=[])
+
+    gallery = cast(GalleryService, current_app.extensions["photobooth.gallery"])
+    try:
+        photos = gallery.list_photos()
+    except GalleryError:
+        abort(503)
+    return jsonify(
+        thumbnails=[
+            url_for("media.thumbnail", photo_id=photo.photo_id) for photo in photos
+        ]
     )
 
 

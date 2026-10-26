@@ -179,8 +179,7 @@ Validation:
 
     idle_timeout_seconds >= 0
 
-A value of zero may disable inactivity-based slideshow depending on the final
-implementation.
+A value of zero disables inactivity-based slideshow entry.
 
 ### slideshow_enabled
 
@@ -534,6 +533,14 @@ Validation:
 The value must be positive when slideshow is active.
 
 The slideshow uses thumbnails instead of original full-resolution files.
+
+The browser resets inactivity after pointer, keyboard, and wheel activity. The
+timer runs only while the booth is IDLE; countdown and capture use independent
+workflow timing. On return from review, loading the booth page starts a fresh
+inactivity period. While slideshow is active, the first interaction exits it
+and is consumed so it cannot also start a capture. The thumbnail list is
+refreshed on slideshow entry and once per minute while active; an empty gallery
+shows the waiting instruction and follows the same refresh schedule.
 
 ---
 

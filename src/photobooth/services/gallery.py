@@ -132,6 +132,32 @@ class GalleryService:
             raise GalleryStorageError("managed photo file is missing")
         return metadata
 
+    def list_photos(self) -> list[PhotoMetadata]:
+        """Return slideshow-eligible photos oldest first, excluding unavailable media.
+
+        Metadata is the publication marker; each result must also have a
+        readable original and an existing generated thumbnail. A photo deleted
+        while the directory is being scanned is ignored. Timestamps are ordered
+        deterministically with the opaque identifier as a tie-breaker.
+        """
+        try:
+            metadata_paths = list(self._metadata_directory.glob("*.json"))
+        except OSError as error:
+            raise GalleryStorageError("photo metadata cannot be listed") from error
+
+        photos: list[PhotoMetadata] = []
+        for metadata_path in metadata_paths:
+            photo_id = metadata_path.stem
+            if self._PHOTO_ID_PATTERN.fullmatch(photo_id) is None:
+                continue
+            try:
+                photo = self.get_photo(photo_id)
+            except PhotoNotFoundError:
+                continue
+            if self._thumbnail_path(photo_id).is_file():
+                photos.append(photo)
+        return sorted(photos, key=lambda photo: (photo.captured_at, photo.photo_id))
+
     def read_photo(self, photo_id: str) -> bytes:
         """Return original JPEG bytes for a currently managed photo."""
         self.get_photo(photo_id)

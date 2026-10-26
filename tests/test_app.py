@@ -34,6 +34,57 @@ def test_booth_homepage_renders() -> None:
     assert b"countdown-panel" in response.data
     assert b"capturing-panel" in response.data
     assert b"error-panel" in response.data
+    assert b'data-slideshow-enabled="true"' in response.data
+    assert b"Touchez l'\xc3\xa9cran pour d\xc3\xa9marrer" in response.data
+
+
+def test_slideshow_feed_returns_only_managed_thumbnail_urls(tmp_path: Path) -> None:
+    """Slideshow media uses generated thumbnails and omits deleted photos."""
+    app = create_app(
+        configuration=_zero_countdown_configuration(tmp_path),
+        camera_backend=SyntheticCameraBackend(),
+    )
+    client: FlaskClient = app.test_client()
+    deleted_id = _capture_photo_id(client)
+    retained_id = _capture_photo_id(client)
+    assert client.post(f"/review/{deleted_id}/delete").status_code == 303
+
+    response = client.get("/slideshow/photos.json")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert isinstance(payload, dict)
+    typed_payload = cast(dict[str, object], payload)
+    thumbnails = typed_payload.get("thumbnails")
+    assert isinstance(thumbnails, list)
+    thumbnails = cast(list[object], thumbnails)
+    assert thumbnails == [f"/media/{retained_id}/thumbnail"]
+    thumbnail_url = thumbnails[0]
+    assert isinstance(thumbnail_url, str)
+    assert client.get(thumbnail_url).mimetype == "image/jpeg"
+
+
+def test_slideshow_feed_is_empty_without_photos_or_when_disabled(tmp_path: Path) -> None:
+    """Empty galleries and disabled configuration produce no slideshow media."""
+    configuration = _zero_countdown_configuration(tmp_path)
+    client: FlaskClient = create_app(
+        configuration=configuration,
+        camera_backend=SyntheticCameraBackend(),
+    ).test_client()
+
+    assert client.get("/slideshow/photos.json").json == {"thumbnails": []}
+
+    disabled = ApplicationConfig(
+        startup=configuration.startup,
+        booth=BoothSettings(countdown_seconds=0, slideshow_enabled=False),
+        config_path=configuration.config_path,
+    )
+    disabled_client: FlaskClient = create_app(
+        configuration=disabled,
+        camera_backend=SyntheticCameraBackend(),
+    ).test_client()
+    assert b'data-slideshow-enabled="false"' in disabled_client.get("/").data
+    assert disabled_client.get("/slideshow/photos.json").json == {"thumbnails": []}
 
 
 def test_capture_endpoint_publishes_photo_and_opens_review(tmp_path: Path) -> None:
@@ -137,6 +188,18 @@ def _zero_countdown_configuration(data_root: Path = Path("data")) -> Application
         booth=BoothSettings(countdown_seconds=0),
         config_path=Path("test-config.json"),
     )
+
+
+def _capture_photo_id(client: FlaskClient) -> str:
+    """Capture through the HTTP workflow and return its opaque photo ID."""
+    response = client.post("/capture")
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert isinstance(payload, dict)
+    typed_payload = cast(dict[str, object], payload)
+    review_path = typed_payload.get("review_url")
+    assert isinstance(review_path, str)
+    return review_path.rsplit("/", maxsplit=1)[-1]
 
 
 def test_preview_endpoint_streams_synthetic_jpeg() -> None:

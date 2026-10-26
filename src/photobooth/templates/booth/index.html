@@ -19,6 +19,7 @@
       body { min-height: 100dvh; }
 
       .booth {
+        position: relative;
         display: flex;
         flex-direction: column;
         width: 100%;
@@ -59,6 +60,38 @@
       }
 
       .shade[hidden], [hidden] { display: none; }
+
+      .slideshow {
+        position: fixed;
+        z-index: 10;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        background: #050605;
+        touch-action: manipulation;
+      }
+
+      .slideshow img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+
+      .slideshow p {
+        position: absolute;
+        right: max(20px, env(safe-area-inset-right));
+        bottom: max(20px, env(safe-area-inset-bottom));
+        left: max(20px, env(safe-area-inset-left));
+        margin: 0;
+        padding: 14px 18px;
+        background: rgb(0 0 0 / 76%);
+        color: #fff;
+        font-size: clamp(1.1rem, 4vh, 2rem);
+        font-weight: 700;
+        text-align: center;
+      }
 
       .countdown-value {
         display: block;
@@ -111,7 +144,12 @@
     </style>
   </head>
   <body>
-    <main class="booth" id="booth" data-state="idle" data-countdown-seconds="{{ countdown_seconds }}">
+    <main class="booth" id="booth" data-state="idle"
+      data-countdown-seconds="{{ countdown_seconds }}"
+      data-idle-timeout-seconds="{{ idle_timeout_seconds }}"
+      data-slideshow-enabled="{{ 'true' if slideshow_enabled else 'false' }}"
+      data-slideshow-interval-seconds="{{ slideshow_interval_seconds }}"
+      data-slideshow-feed-url="{{ url_for('booth.slideshow_photos') }}">
       <header><h1>{{ booth_name }}</h1></header>
       <section class="preview" aria-label="Aperçu caméra">
         <img id="preview" src="{{ url_for('booth.preview') }}" alt="Aperçu caméra en direct">
@@ -135,6 +173,10 @@
         <button id="capture-button" type="button">Prendre une photo</button>
         {% if notice %}<p id="state-message" role="status">{{ notice }}</p>{% endif %}
       </footer>
+      <section class="slideshow" id="slideshow-panel" aria-label="Diaporama" hidden>
+        <img id="slideshow-image" alt="" hidden>
+        <p role="status">Touchez l'écran pour démarrer</p>
+      </section>
     </main>
     <script>
       const booth = document.getElementById("booth");
@@ -145,15 +187,101 @@
       const countdownValue = document.getElementById("countdown-value");
       const capturingPanel = document.getElementById("capturing-panel");
       const errorPanel = document.getElementById("error-panel");
+      const slideshowPanel = document.getElementById("slideshow-panel");
+      const slideshowImage = document.getElementById("slideshow-image");
       const countdownSeconds = Number(booth.dataset.countdownSeconds);
+      const idleTimeoutSeconds = Number(booth.dataset.idleTimeoutSeconds);
+      const slideshowEnabled = booth.dataset.slideshowEnabled === "true";
+      const slideshowIntervalSeconds = Number(booth.dataset.slideshowIntervalSeconds);
+      const slideshowFeedUrl = booth.dataset.slideshowFeedUrl;
+      let inactivityTimer = 0;
+      let rotationTimer = 0;
+      let refreshTimer = 0;
+      let slideshowThumbnails = [];
+      let slideshowIndex = 0;
+      let feedRequestInProgress = false;
 
       function setState(state) {
         booth.dataset.state = state;
         countdownPanel.hidden = state !== "countdown";
         capturingPanel.hidden = state !== "capturing";
         errorPanel.hidden = state !== "error";
+        slideshowPanel.hidden = state !== "slideshow";
         captureButton.hidden = state !== "idle";
         captureButton.disabled = state !== "idle";
+        if (state === "idle") scheduleInactivity();
+        else window.clearTimeout(inactivityTimer);
+      }
+
+      function scheduleInactivity() {
+        window.clearTimeout(inactivityTimer);
+        if (slideshowEnabled && idleTimeoutSeconds > 0 && booth.dataset.state === "idle") {
+          inactivityTimer = window.setTimeout(enterSlideshow, idleTimeoutSeconds * 1000);
+        }
+      }
+
+      function showSlideshowPhoto() {
+        if (booth.dataset.state !== "slideshow" || slideshowThumbnails.length === 0) {
+          slideshowImage.hidden = true;
+          slideshowImage.removeAttribute("src");
+          return;
+        }
+        slideshowImage.hidden = false;
+        slideshowImage.src = slideshowThumbnails[slideshowIndex];
+        slideshowIndex = (slideshowIndex + 1) % slideshowThumbnails.length;
+      }
+
+      async function refreshSlideshowPhotos() {
+        if (feedRequestInProgress || booth.dataset.state !== "slideshow") return;
+        feedRequestInProgress = true;
+        try {
+          const response = await fetch(slideshowFeedUrl, { cache: "no-store" });
+          if (!response.ok) throw new Error("slideshow feed unavailable");
+          const payload = await response.json();
+          if (!Array.isArray(payload.thumbnails)) throw new Error("invalid slideshow feed");
+          slideshowThumbnails = payload.thumbnails.filter((url) => typeof url === "string");
+          slideshowIndex = 0;
+          showSlideshowPhoto();
+        } catch {
+          slideshowThumbnails = [];
+          showSlideshowPhoto();
+        } finally {
+          feedRequestInProgress = false;
+        }
+      }
+
+      function enterSlideshow() {
+        if (!slideshowEnabled || booth.dataset.state !== "idle") return;
+        setState("slideshow");
+        void refreshSlideshowPhotos();
+        rotationTimer = window.setInterval(showSlideshowPhoto, slideshowIntervalSeconds * 1000);
+        refreshTimer = window.setInterval(refreshSlideshowPhotos, 60000);
+      }
+
+      function exitSlideshow() {
+        window.clearInterval(rotationTimer);
+        window.clearInterval(refreshTimer);
+        slideshowThumbnails = [];
+        slideshowImage.hidden = true;
+        slideshowImage.removeAttribute("src");
+        setState("idle");
+      }
+
+      // Activity resets inactivity only in IDLE. During SLIDESHOW the first
+      // pointer, keyboard, or wheel event is consumed; capture countdown work
+      // owns separate timers and is never advanced by the inactivity timer.
+      function handleActivity(event) {
+        if (booth.dataset.state === "slideshow") {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          exitSlideshow();
+          return;
+        }
+        if (booth.dataset.state === "idle") scheduleInactivity();
+      }
+
+      for (const eventName of ["pointerdown", "pointermove", "keydown", "wheel"]) {
+        document.addEventListener(eventName, handleActivity, { capture: true });
       }
 
       function wait(milliseconds) {
@@ -191,6 +319,8 @@
         setState("idle");
         resumePreview();
       });
+      slideshowImage.addEventListener("error", () => { slideshowImage.hidden = true; });
+      window.addEventListener("pageshow", scheduleInactivity);
       setState("idle");
     </script>
   </body>
