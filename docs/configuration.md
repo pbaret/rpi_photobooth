@@ -129,7 +129,9 @@ Development default:
     false
 
 Debug mode must not be enabled when exposing the application to other devices
-on the network.
+on the network. Configuration validation permits debug mode only for
+`localhost` or an IP loopback address; wildcard binds and other hostnames or
+IP addresses are rejected.
 
 ---
 

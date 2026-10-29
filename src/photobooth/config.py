@@ -1,5 +1,6 @@
 """Load and persist validated photobooth configuration."""
 
+import ipaddress
 import json
 import os
 from dataclasses import dataclass, field
@@ -26,6 +27,16 @@ class CameraBackend(str, Enum):
 CameraSettingValue = bool | int | float | str
 
 
+def _is_loopback_host(bind_host: str) -> bool:
+    """Return whether a bind host is explicitly restricted to loopback."""
+    if bind_host.casefold() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(bind_host).is_loopback
+    except ValueError:
+        return False
+
+
 @dataclass(frozen=True)
 class StartupConfig:
     """Hold deployment settings that take effect when the process starts."""
@@ -48,7 +59,7 @@ class StartupConfig:
             raise ConfigurationError("bind_host must not be empty")
         if not 1 <= self.port <= 65535:
             raise ConfigurationError("port must be between 1 and 65535")
-        if self.debug and self.bind_host in {"0.0.0.0", "::"}:
+        if self.debug and not _is_loopback_host(self.bind_host):
             raise ConfigurationError("debug mode cannot bind to a LAN interface")
         if self.public_base_url is not None:
             validate_public_base_url(self.public_base_url)

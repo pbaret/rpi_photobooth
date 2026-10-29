@@ -142,6 +142,53 @@ def test_capture_endpoint_hides_camera_failure_details(tmp_path: Path) -> None:
     assert b"private camera device detail" not in response.data
 
 
+@pytest.mark.parametrize("failure_mode", ["camera", "invalid_image"])
+def test_capture_failure_can_be_retried(
+    failure_mode: str, tmp_path: Path
+) -> None:
+    """Camera and image-validation failures leave later capture usable."""
+
+    class FailOnceBackend(SyntheticCameraBackend):
+        """Model a compliant backend that releases after its first failed still."""
+
+        def __init__(self) -> None:
+            """Fail the next capture once, then use the synthetic implementation."""
+            super().__init__()
+            self._failure_pending = True
+
+        def capture(self, output_path: Path) -> None:
+            """Emit one configured failure and stop, matching the backend contract."""
+            if self._failure_pending:
+                self._failure_pending = False
+                self.stop()
+                if failure_mode == "camera":
+                    raise CameraOperationError("synthetic capture failure")
+                output_path.write_bytes(b"not a JPEG")
+                return
+            super().capture(output_path)
+
+    app = create_app(
+        configuration=_zero_countdown_configuration(tmp_path),
+        camera_backend=FailOnceBackend(),
+    )
+    client: FlaskClient = app.test_client()
+
+    failed = client.post("/capture")
+    recovered = client.post("/capture")
+
+    assert failed.status_code == 503
+    assert failed.json == {"error": "capture_failed"}
+    assert recovered.status_code == 200
+    payload = recovered.get_json()
+    assert isinstance(payload, dict)
+    typed_payload = cast(dict[str, object], payload)
+    review_path = typed_payload.get("review_url")
+    assert isinstance(review_path, str)
+    assert client.get(review_path).status_code == 200
+    preview = cast(PreviewService, app.extensions["photobooth.preview"])
+    preview.close()
+
+
 def test_capture_service_rejects_concurrent_requests(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

@@ -105,6 +105,19 @@ def test_invalid_public_base_url_is_rejected(public_base_url: str) -> None:
         StartupConfig(public_base_url=public_base_url)
 
 
+@pytest.mark.parametrize("bind_host", ["0.0.0.0", "::", "192.168.1.20", "booth.local"])
+def test_debug_mode_rejects_non_loopback_bind_hosts(bind_host: str) -> None:
+    """Debug mode cannot bind to wildcard or explicitly addressed LAN hosts."""
+    with pytest.raises(ConfigurationError, match="debug mode"):
+        StartupConfig(bind_host=bind_host, debug=True)
+
+
+@pytest.mark.parametrize("bind_host", ["localhost", "127.0.0.1", "::1"])
+def test_debug_mode_allows_loopback_bind_hosts(bind_host: str) -> None:
+    """Debug mode remains available when the server is restricted to loopback."""
+    StartupConfig(bind_host=bind_host, debug=True)
+
+
 def test_valid_json_overrides_booth_defaults(tmp_path: Path) -> None:
     """Recognized and correctly typed JSON values replace booth defaults."""
     config_path = tmp_path / "config.json"
