@@ -24,6 +24,7 @@ def test_defaults_are_used_without_configuration_file(tmp_path: Path) -> None:
 
     assert isinstance(configuration, ApplicationConfig)
     assert configuration.booth == BoothSettings()
+    assert configuration.booth.wifi_network_name == ""
     assert configuration.startup.bind_host == "127.0.0.1"
     assert configuration.startup.port == 5000
     assert configuration.startup.camera_backend is CameraBackend.SYNTHETIC
@@ -185,7 +186,9 @@ def test_unknown_configuration_section_is_rejected(tmp_path: Path) -> None:
 def test_persistence_atomically_writes_settings(tmp_path: Path) -> None:
     """A complete settings document becomes the destination in one replacement."""
     config_path = tmp_path / "nested" / "config.json"
-    settings = BoothSettings(booth_name="Studio", countdown_seconds=5)
+    settings = BoothSettings(
+        booth_name="Studio", wifi_network_name="Studio Wi-Fi", countdown_seconds=5
+    )
 
     save_booth_settings(config_path, settings)
 

@@ -33,6 +33,8 @@ def test_booth_homepage_renders() -> None:
     assert b"data-state=\"idle\"" in response.data
     assert b"countdown-panel" in response.data
     assert b"capturing-panel" in response.data
+    assert b"Ne bougez plus" in response.data
+    assert b"capture/ready" in response.data
     assert b"error-panel" in response.data
     assert b'data-slideshow-enabled="true"' in response.data
     assert b"Touchez l'\xc3\xa9cran pour d\xc3\xa9marrer" in response.data
@@ -187,6 +189,53 @@ def test_capture_failure_can_be_retried(
     assert client.get(review_path).status_code == 200
     preview = cast(PreviewService, app.extensions["photobooth.preview"])
     preview.close()
+
+
+def test_browser_capture_waits_for_paint_acknowledgement(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A synchronized capture cannot reach the camera before browser readiness."""
+    countdown_complete = Event()
+    still_started = Event()
+
+    def finish_countdown(_: int) -> None:
+        """Make the server countdown deterministic while exposing its completion."""
+        countdown_complete.set()
+
+    class ObservedCameraBackend(SyntheticCameraBackend):
+        """Record when the still operation crosses into the camera backend."""
+
+        def capture(self, output_path: Path) -> None:
+            """Signal the still boundary before creating the synthetic photo."""
+            still_started.set()
+            super().capture(output_path)
+
+    monkeypatch.setattr(preview_module, "sleep", finish_countdown)
+    app = create_app(
+        _zero_countdown_configuration(tmp_path), ObservedCameraBackend()
+    )
+    capture_statuses: list[int] = []
+
+    def request_capture() -> None:
+        """Run the blocking capture request on its own test-client thread."""
+        response = app.test_client().post("/capture?wait_for_paint=true")
+        capture_statuses.append(response.status_code)
+
+    capture_thread = Thread(target=request_capture)
+    capture_thread.start()
+    try:
+        assert countdown_complete.wait(timeout=1)
+        assert not still_started.is_set()
+        readiness = app.test_client().post("/capture/ready")
+        assert readiness.status_code == 204
+        capture_thread.join(timeout=2)
+    finally:
+        capture_thread.join(timeout=2)
+        cast(PreviewService, app.extensions["photobooth.preview"]).close()
+
+    assert not capture_thread.is_alive()
+    assert capture_statuses == [200]
+    assert still_started.is_set()
 
 
 def test_capture_service_rejects_concurrent_requests(

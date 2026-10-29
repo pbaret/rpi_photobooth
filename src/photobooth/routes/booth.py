@@ -28,6 +28,7 @@ from photobooth.services.gallery import (
 from photobooth.services.downloads import DownloadError, DownloadService
 from photobooth.services.preview import (
     CaptureInProgressError,
+    CaptureReadyTimeoutError,
     PreviewService,
     PreviewSubscription,
 )
@@ -81,12 +82,24 @@ def capture() -> ResponseReturnValue:
     )
     service = cast(PreviewService, current_app.extensions["photobooth.preview"])
     try:
-        photo = service.capture(configuration.booth.countdown_seconds)
+        photo = service.capture(
+            configuration.booth.countdown_seconds,
+            wait_for_ready=request.args.get("wait_for_paint") == "true",
+        )
     except CaptureInProgressError:
         return jsonify(error="capture_in_progress"), 409
-    except (CameraError, GalleryError):
+    except (CameraError, GalleryError, CaptureReadyTimeoutError):
         return jsonify(error="capture_failed"), 503
     return jsonify(review_url=url_for("booth.review", photo_id=photo.photo_id))
+
+
+@booth_blueprint.post("/capture/ready")
+def capture_ready() -> ResponseReturnValue:
+    """Acknowledge that the browser has painted the supplemental-light screen."""
+    service = cast(PreviewService, current_app.extensions["photobooth.preview"])
+    if not service.signal_capture_ready():
+        return jsonify(error="capture_not_waiting"), 409
+    return Response(status=204)
 
 
 @booth_blueprint.get("/review/<photo_id>")
@@ -130,6 +143,7 @@ def review(photo_id: str) -> str:
         idle_timeout_seconds=configuration.booth.idle_timeout_seconds,
         slideshow_enabled=configuration.booth.slideshow_enabled,
         slideshow_interval_seconds=configuration.booth.slideshow_interval_seconds,
+        wifi_network_name=configuration.booth.wifi_network_name,
     )
 
 

@@ -79,6 +79,7 @@ class BoothSettings:
     """Hold validated booth options stored in the runtime JSON file."""
 
     booth_name: str = "Photobooth"
+    wifi_network_name: str = ""
     countdown_seconds: int = 3
     idle_timeout_seconds: int = 120
     slideshow_enabled: bool = True
@@ -117,6 +118,7 @@ def load_configuration(
     document = _load_json_object(selected_path)
     legacy_booth_keys = {
         "booth_name",
+        "wifi_network_name",
         "countdown_seconds",
         "idle_timeout_seconds",
         "slideshow_enabled",
@@ -148,6 +150,7 @@ def load_configuration(
         "booth",
         {
             "booth_name",
+            "wifi_network_name",
             "countdown_seconds",
             "idle_timeout_seconds",
             "slideshow_enabled",
@@ -170,6 +173,7 @@ def load_configuration(
     )
     booth = BoothSettings(
         booth_name=_string_value(booth_values, "booth_name", "Photobooth"),
+        wifi_network_name=_string_value(booth_values, "wifi_network_name", ""),
         countdown_seconds=_integer_value(booth_values, "countdown_seconds", 3),
         idle_timeout_seconds=_integer_value(booth_values, "idle_timeout_seconds", 120),
         slideshow_enabled=_boolean_value(booth_values, "slideshow_enabled", True),
@@ -220,6 +224,7 @@ def save_configuration(configuration: ApplicationConfig) -> None:
         },
         "booth": {
             "booth_name": settings.booth_name,
+            "wifi_network_name": settings.wifi_network_name,
             "countdown_seconds": settings.countdown_seconds,
             "idle_timeout_seconds": settings.idle_timeout_seconds,
             "slideshow_enabled": settings.slideshow_enabled,
@@ -280,6 +285,7 @@ def _section_values(
     """
     booth_keys = {
         "booth_name",
+        "wifi_network_name",
         "countdown_seconds",
         "idle_timeout_seconds",
         "slideshow_enabled",

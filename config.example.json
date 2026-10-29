@@ -10,6 +10,7 @@
   },
   "booth": {
     "booth_name": "Photobooth",
+    "wifi_network_name": "",
     "countdown_seconds": 3,
     "idle_timeout_seconds": 120,
     "slideshow_enabled": true,

@@ -114,7 +114,7 @@ def test_review_shows_qr_and_download_route_returns_attachment(tmp_path: Path) -
     review = client.get(review_url)
     assert review.status_code == 200
     assert b"data:image/png;base64," in review.data
-    assert b"Scannez ce QR code" in review.data
+    assert b"Connectez-vous au r\xc3\xa9seau Wi-Fi du photobooth" in review.data
     assert b"Nouvelle Photo" in review.data
     assert b"Supprimer" in review.data
     assert b"Imprimer" in review.data
@@ -129,6 +129,29 @@ def test_review_shows_qr_and_download_route_returns_attachment(tmp_path: Path) -
     assert "filename=photobooth-photo.jpg" in response.headers["Content-Disposition"]
     assert str(tmp_path).encode() not in response.data
     assert str(tmp_path) not in response.headers["Content-Disposition"]
+
+
+def test_review_renders_configured_wifi_name_as_escaped_text(tmp_path: Path) -> None:
+    """The review safely presents the configured network name before its QR."""
+    configuration = ApplicationConfig(
+        startup=StartupConfig(
+            data_root=tmp_path / "data",
+            public_base_url="http://192.168.1.42:5000",
+        ),
+        booth=BoothSettings(countdown_seconds=0, wifi_network_name="Studio <invités>"),
+        config_path=tmp_path / "config.json",
+    )
+    client: FlaskClient = create_app(configuration, SyntheticCameraBackend()).test_client()
+    capture = client.post("/capture")
+    payload = capture.get_json()
+    assert isinstance(payload, dict)
+
+    review = client.get(cast(str, payload["review_url"]))
+    html = review.get_data(as_text=True)
+
+    assert review.status_code == 200
+    assert "Connectez-vous au réseau Wi-Fi « Studio &lt;invités&gt; »" in html
+    assert "Studio <invités>" not in html
 
 
 def test_missing_public_base_url_shows_configuration_error_without_token(

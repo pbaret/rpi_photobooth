@@ -151,6 +151,21 @@ Purpose:
 
 Human-friendly booth name displayed where appropriate.
 
+### wifi_network_name
+
+Type:
+
+    str
+
+Default:
+
+    ""
+
+Purpose:
+
+Display-only Wi-Fi network name shown above the review download QR code. This
+setting does not configure wireless networking and does not contain a password.
+
 ### countdown_seconds
 
 Type:

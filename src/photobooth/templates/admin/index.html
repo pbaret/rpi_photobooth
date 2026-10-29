@@ -77,6 +77,10 @@
               <input id="booth_name" name="booth_name" type="text" required value="{{ values.booth_name }}" aria-invalid="{{ 'true' if errors.get('booth_name') else 'false' }}">
               {% if errors.get('booth_name') %}<span class="error">{{ errors.get('booth_name') }}</span>{% endif %}
             </label>
+            <label for="wifi_network_name">Booth Wi-Fi network name
+              <input id="wifi_network_name" name="wifi_network_name" type="text" value="{{ values.wifi_network_name }}" aria-invalid="{{ 'true' if errors.get('wifi_network_name') else 'false' }}">
+              {% if errors.get('wifi_network_name') %}<span class="error">{{ errors.get('wifi_network_name') }}</span>{% endif %}
+            </label>
             <label for="countdown_seconds">Countdown (seconds)
               <input id="countdown_seconds" name="countdown_seconds" type="number" min="0" max="30" step="1" required value="{{ values.countdown_seconds }}" aria-invalid="{{ 'true' if errors.get('countdown_seconds') else 'false' }}">
               {% if errors.get('countdown_seconds') %}<span class="error">{{ errors.get('countdown_seconds') }}</span>{% endif %}

@@ -8,7 +8,7 @@ and keeps the latest immutable JPEG available to concurrent subscribers.
 from collections.abc import Iterator
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from threading import Condition, Thread
+from threading import Condition, Event, Thread
 from time import sleep
 
 from photobooth.camera.contract import (
@@ -21,6 +21,10 @@ from photobooth.services.gallery import GalleryService, PhotoMetadata
 
 class CaptureInProgressError(Exception):
     """Report that another capture workflow already owns the camera."""
+
+
+class CaptureReadyTimeoutError(Exception):
+    """Report that the browser did not confirm its capture screen in time."""
 
 
 class PreviewService:
@@ -45,6 +49,7 @@ class PreviewService:
         self._camera_started = False
         self._capturing = False
         self._capture_started = False
+        self._capture_ready: Event | None = None
         self._error: CameraError | None = None
         self._closed = False
 
@@ -89,15 +94,18 @@ class PreviewService:
                 self._worker.start()
             return PreviewSubscription(self, self._generation - 1)
 
-    def capture(self, countdown_seconds: int) -> PhotoMetadata:
+    def capture(
+        self, countdown_seconds: int, wait_for_ready: bool = False
+    ) -> PhotoMetadata:
         """Capture a still and hand it to GalleryService for publication.
 
         The reservation rejects simultaneous capture requests. Existing
         preview subscribers are ended after the countdown, and the producer
         is joined before the backend is restarted for its exclusive capture.
         The temporary still is validated and persisted by GalleryService before
-        its identifier is returned. Camera and gallery failures still release
-        the temporary capture file and reset the reservation.
+        its identifier is returned. Browser-driven captures can require a
+        paint acknowledgement after the server countdown. Camera and gallery
+        failures still release the temporary capture file and reset the reservation.
         """
         with self._condition:
             if self._closed:
@@ -105,8 +113,14 @@ class PreviewService:
             if self._capturing:
                 raise CaptureInProgressError("a capture is already in progress")
             self._capturing = True
+            ready_event = Event() if wait_for_ready else None
+            self._capture_ready = ready_event
         try:
             sleep(countdown_seconds)
+            if ready_event is not None and not ready_event.wait(timeout=10):
+                raise CaptureReadyTimeoutError(
+                    "browser did not confirm the capture screen"
+                )
             with self._condition:
                 self._capture_started = True
                 self._condition.notify_all()
@@ -133,7 +147,22 @@ class PreviewService:
             with self._condition:
                 self._capture_started = False
                 self._capturing = False
+                self._capture_ready = None
                 self._condition.notify_all()
+
+    def signal_capture_ready(self) -> bool:
+        """Release a browser-synchronized capture after its white screen paints.
+
+        Returns false when no browser-driven capture is waiting for its paint
+        acknowledgement. The event is safe to signal before the server-side
+        countdown finishes; capture still cannot proceed until that countdown
+        has elapsed.
+        """
+        with self._condition:
+            if not self._capturing or self._capture_ready is None:
+                return False
+            self._capture_ready.set()
+            return True
 
     def close(self) -> None:
         """Stop production, wait for its camera call, and release the backend.

@@ -108,6 +108,7 @@ def update_settings() -> ResponseReturnValue:
 		)
 		booth = BoothSettings(
 			booth_name=raw_values.get("booth_name", ""),
+			wifi_network_name=raw_values.get("wifi_network_name", ""),
 			countdown_seconds=_integer_form_value(raw_values, "countdown_seconds"),
 			idle_timeout_seconds=_integer_form_value(raw_values, "idle_timeout_seconds"),
 			slideshow_enabled=raw_values.get("slideshow_enabled") == "true",
@@ -236,6 +237,9 @@ def _submitted_values(
 	"""Build safe form values, retaining user text without reflecting secrets."""
 	return {
 		"booth_name": raw_values.get("booth_name", configuration.booth.booth_name),
+		"wifi_network_name": raw_values.get(
+			"wifi_network_name", configuration.booth.wifi_network_name
+		),
 		"countdown_seconds": raw_values.get(
 			"countdown_seconds", str(configuration.booth.countdown_seconds)
 		),

@@ -63,6 +63,7 @@ def test_valid_update_applies_live_values_and_reports_camera_restart(
     client = app.test_client()
     form = _form(
         booth_name="Studio booth",
+        wifi_network_name="Studio Wi-Fi",
         countdown_seconds="8",
         slideshow_enabled="false",
         public_base_url="http://booth.local:5000",
@@ -84,6 +85,7 @@ def test_valid_update_applies_live_values_and_reports_camera_restart(
     assert b'data-countdown-seconds="8"' in booth_page.data
     assert b'data-slideshow-enabled="false"' in booth_page.data
     assert b"Studio booth" in booth_page.data
+    assert b"Studio Wi-Fi" in page.data
 
     effective = cast(ApplicationConfig, app.extensions["photobooth.configuration"])
     persisted = cast(
@@ -93,6 +95,7 @@ def test_valid_update_applies_live_values_and_reports_camera_restart(
     assert effective.startup.public_base_url == "http://booth.local:5000"
     assert effective.startup.download_token_lifetime_seconds == 60
     assert effective.booth.countdown_seconds == 8
+    assert effective.booth.wifi_network_name == "Studio Wi-Fi"
     assert persisted.startup.camera_backend.value == "opencv"
     stored = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
     assert stored["startup"]["camera_backend"] == "opencv"
@@ -367,6 +370,7 @@ def _form(**overrides: str) -> dict[str, str]:
     """Return a complete valid update payload with selected overrides."""
     values = {
         "booth_name": "Photobooth",
+        "wifi_network_name": "",
         "countdown_seconds": "3",
         "idle_timeout_seconds": "120",
         "slideshow_interval_seconds": "5",

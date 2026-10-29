@@ -2,7 +2,7 @@
 <html lang="fr">
   <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>{{ booth_name }}</title>
     <style>
       :root {
@@ -26,7 +26,7 @@
         height: 100dvh;
         padding: max(12px, env(safe-area-inset-top)) 16px
           max(12px, env(safe-area-inset-bottom));
-        gap: 12px;
+        gap: 8px;
       }
 
       header { flex: 0 0 auto; text-align: center; }
@@ -60,6 +60,26 @@
       }
 
       .shade[hidden], [hidden] { display: none; }
+
+      .capturing-panel {
+        position: fixed;
+        z-index: 20;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: #fff;
+        color: #111;
+        text-align: center;
+      }
+
+      .capturing-panel[hidden] { display: none; }
+
+      .capturing-panel .state-label {
+        margin: 0;
+        font-size: clamp(2rem, 8vh, 4rem);
+        font-weight: 700;
+      }
 
       .slideshow {
         position: fixed;
@@ -139,9 +159,14 @@
       .error-panel p { margin: 0; font-size: 1.1rem; }
 
       @media (orientation: landscape) {
-        .booth { padding-left: 24px; padding-right: 24px; }
+        .booth {
+          gap: 6px;
+          padding-left: max(16px, env(safe-area-inset-left));
+          padding-right: max(16px, env(safe-area-inset-right));
+        }
         header { text-align: left; }
-        footer { min-height: 72px; }
+        footer { min-height: 60px; }
+        button { min-height: 56px; }
       }
     </style>
   </head>
@@ -161,15 +186,15 @@
             <p class="state-label">Préparez-vous</p>
           </div>
         </div>
-        <div class="shade" id="capturing-panel" hidden>
-          <p class="state-label" role="status">Prise de vue en cours...</p>
-        </div>
         <div class="shade" id="error-panel" hidden>
           <div class="error-panel">
             <p role="alert">La prise de vue n'a pas pu aboutir.</p>
             <button id="return-button" type="button">Retour</button>
           </div>
         </div>
+      </section>
+      <section class="capturing-panel" id="capturing-panel" aria-label="Prise de vue" hidden>
+        <p class="state-label" role="status">Ne bougez plus</p>
       </section>
       <footer>
         <button id="capture-button" type="button">Prendre une photo</button>
@@ -316,7 +341,7 @@
 
       async function startCapture() {
         setState("countdown");
-        const request = fetch("{{ url_for('booth.capture') }}", { method: "POST" });
+        const request = fetch("{{ url_for('booth.capture', wait_for_paint='true') }}", { method: "POST" });
         for (let remaining = countdownSeconds; remaining > 0; remaining -= 1) {
           countdownValue.value = String(remaining);
           countdownValue.textContent = String(remaining);
@@ -324,6 +349,11 @@
         }
         setState("capturing");
         try {
+          // The white surface supplies frontal light. Two frames allow a paint;
+          // the server acknowledgement prevents still capture before that paint.
+          await new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
+          const readyResponse = await fetch("{{ url_for('booth.capture_ready') }}", { method: "POST" });
+          if (!readyResponse.ok) throw new Error("capture screen was not acknowledged");
           const response = await request;
           if (!response.ok) throw new Error("capture failed");
           const result = await response.json();
