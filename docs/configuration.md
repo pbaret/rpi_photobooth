@@ -735,6 +735,153 @@ output, and camera status not available through the current backend contract.
 
 ---
 
+## 22a. Event theme
+
+### Ownership and file
+
+The participant look of an event is stored separately from startup and booth
+settings, in `theme.json` beside `config.json` (same directory, fixed name).
+`photobooth.theme` owns the typed model (`ThemeSettings`), parsing,
+persistence and the mapping to CSS. A missing file means the default theme;
+the file is created only when the admin appearance form is saved. To switch
+events, replace `theme.json` and reload the booth page, or save the admin
+form. Changes saved through the admin apply on the next participant page
+load; no restart is required.
+
+The file is local deployment state and is ignored by Git. Examples live in
+`docs/themes/`:
+
+- `default.json`: the built-in defaults;
+- `artwork.json`: light palette, preview on the right, capture bottom-left,
+  title hidden, so artwork on the left stays visible;
+- `alternate-review.json`: dark palette, centered compositions, QR left,
+  actions right.
+
+### Defaults and partial files
+
+Every section and key is optional. Absent values use the model defaults, so
+a file that only sets `colors.primary` is valid. Unknown sections or keys,
+wrong JSON types and values outside the allowlists are rejected with an
+error naming the dotted path (for example `preview.size`). A malformed theme
+file prevents startup, as `config.json` does.
+
+### Structure
+
+    {
+      "colors": {
+        "background": "#111316",
+        "surface": "#1f2328",
+        "foreground": "#f5f1e8",
+        "primary": "#f2b544",
+        "primary_text": "#15171a"
+      },
+      "background": {"image": null, "fit": "cover", "position": "center"},
+      "preview": {
+        "position": "left", "size": "large", "fit": "contain",
+        "capture_position": "right",
+        "title_visible": true, "title_position": "top-right"
+      },
+      "review": {
+        "photo_position": "left", "photo_size": "medium",
+        "qr_position": "top-right", "actions_position": "bottom-right"
+      }
+    }
+
+### Colors
+
+Each color must match `#rrggbb` exactly; names, short forms, `rgb()` and any
+other CSS text are rejected. `primary_text` is drawn on `primary` (the capture
+button and main actions); `foreground` is drawn on `background` and `surface`
+(panels). Contrast is the event designer's responsibility. Some elements
+deliberately ignore the palette:
+
+- the countdown disc (white on translucent black);
+- the white QR plate;
+- the destructive red of `Supprimer`;
+- the white CAPTURING screen.
+
+### Background image
+
+`background.image` is `null` or the identifier of an image managed by
+`BackgroundService` (22 URL-safe characters plus `.jpg` or `.png`). Paths and
+URLs cannot be expressed. Images are added through the admin upload field:
+
+1. the bytes are decoded with Pillow (JPEG, PNG or WebP, at most 40 MP);
+2. EXIF orientation is applied and the longest edge is limited to 3840 px;
+3. the result is re-encoded (PNG if transparent, otherwise JPEG);
+4. it is published atomically under `data_root/backgrounds/<random id>`.
+
+The client filename is ignored. A successful upload becomes the selected
+background. Request bodies are limited to 25 MB.
+
+Previously uploaded images remain selectable. If the configured file has
+been removed, participant pages fall back to `colors.background`.
+
+`fit` is `cover` or `contain`. `position` is one of `center`, `top`,
+`bottom`, `left`, `right`, `top-left`, `top-right`, `bottom-left`,
+`bottom-right`.
+
+### Semantic layout
+
+PREVIEW and REVIEW share one model:
+
+- a dominant hero (live preview or photograph) with a horizontal `position`
+  (`left`, `center`, `right`);
+- a `size` (`small`, `medium`, `large`, `full`) that selects a share of the
+  usable width (50 %, 64 %, 76 %, 100 %);
+- the hero is always capped by the available height and its aspect ratio,
+  so no value can push it off screen;
+- widgets use anchors: `top-left`, `top-center`, `top-right`, `left`,
+  `right`, `bottom-left`, `bottom-center`, `bottom-right`;
+- side anchors center the widget in the free column beside the hero; when
+  that column is too narrow, the widget overlaps the hero at a minimum width
+  and stays on top;
+- `*-center` anchors span the stage width at its top or bottom;
+- a fully centered anchor does not exist.
+
+PREVIEW (`preview`) adds:
+
+- `fit`:
+  - `contain` frames the camera at its own aspect ratio;
+  - `cover` fills the full stage height and crops the camera image;
+- `capture_position`: where the round capture button goes;
+- `title_visible` and `title_position`: the booth name.
+
+A visible title cannot share the capture button's anchor. COUNTDOWN reuses
+this composition with the countdown drawn over the preview.
+
+REVIEW (`review`) uses `photo_position`, `photo_size`, `qr_position` (QR code
+and Wi-Fi instruction) and `actions_position` (`Nouvelle Photo`, `Imprimer`,
+`Supprimer`). The two panels may share a side column only as top and bottom,
+and a `*-center` panel cannot share its row with the other panel. Other
+combinations are rejected because they can overlap on a landscape phone.
+
+### Mapping to CSS
+
+`ThemeSettings.css_variables()` emits only:
+
+- `--booth-background-color`;
+- `--booth-surface-color`;
+- `--booth-foreground-color`;
+- `--booth-primary-color`;
+- `--booth-primary-text-color`;
+- `--booth-background-fit`;
+- `--booth-background-position`.
+
+When the image exists, the booth Blueprint adds
+`--booth-background-image: url("/media/backgrounds/<id>")`.
+
+Layout enums become fixed classes:
+
+- `hero-{position}`, `hero-size-{size}` and `hero-fit-{fit}` on the stage;
+- `anchor anchor-x-{left|center|right} anchor-y-{top|middle|bottom}` on each
+  widget container.
+
+`static/participant.css` turns these into geometry. Templates never receive
+configured text as CSS.
+
+---
+
 ## 23. Runtime configuration file
 
 Default location:

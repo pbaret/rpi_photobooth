@@ -843,12 +843,50 @@ The detailed configuration model is documented in:
 The UI is:
 
 - browser-based;
-- mobile-first;
 - touch-first;
-- usable in portrait and landscape;
 - implemented using Jinja2, HTML, CSS and vanilla JavaScript.
 
 No frontend framework is required.
+
+Participant screens (booth, countdown, capture, review, slideshow, error)
+target a landscape kiosk; the reference is a Lenovo Phab 2 Pro
+(2560 x 1440) in browser fullscreen. Portrait is not a participant target.
+The administration page remains a portrait-friendly scrolling form.
+
+Participant styling lives in `static/participant.css`, shared by the booth and
+review templates. Sizes are expressed in `vmin`, so the layout keeps the same
+proportions on the device's real CSS viewport and on a 2560 x 1440 desktop
+browser. CAPTURING deliberately ignores theming: it remains a white
+full-screen surface with black text.
+
+### Event theme
+
+`photobooth.theme.ThemeSettings` owns every event-specific visual choice:
+palette, optional background artwork and the PREVIEW/REVIEW composition. It is
+loaded from `theme.json` beside `config.json` by `create_app`, held in
+`app.extensions["photobooth.theme"]` and replaced by the admin appearance
+form. The booth Blueprint context processor exposes it to participant
+templates as:
+
+- validated CSS custom properties (`--booth-*`) emitted in a small `:root`
+  block;
+- allowlisted classes derived from enums (`hero-*`, `anchor-*`);
+- a background URL only while the managed image still exists.
+
+Configuration never reaches templates as CSS, HTML or JavaScript text.
+
+Both participant screens use the same composition model: a full-viewport
+stage with one dominant "hero" (live preview or captured photo) and secondary
+widgets placed at semantic anchors. The hero is placed left, center or right
+and takes a small/medium/large/full share of the usable width, capped by the
+available height and its aspect ratio. Side anchors fill the column left free
+beside the hero; when the hero leaves no room they overlap it at a minimum
+width and stay on top. Model validation rejects anchor combinations that
+could overlap.
+
+`BackgroundService` owns `data_root/backgrounds`. Uploads are decoded and
+re-encoded with Pillow under random identifiers and served by
+`/media/backgrounds/<id>`.
 
 ---
 

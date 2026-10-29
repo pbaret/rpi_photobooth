@@ -26,14 +26,41 @@ from photobooth.services.gallery import (
     PhotoNotFoundError,
 )
 from photobooth.services.downloads import DownloadError, DownloadService
+from photobooth.services.backgrounds import BackgroundService
 from photobooth.services.preview import (
     CaptureInProgressError,
     CaptureReadyTimeoutError,
     PreviewService,
     PreviewSubscription,
 )
+from photobooth.theme import ThemeSettings
 
 booth_blueprint = Blueprint("booth", __name__)
+
+
+@booth_blueprint.context_processor
+def participant_theme() -> dict[str, object]:
+    """Expose the current event theme to every participant template.
+
+    ``theme_variables`` contains only validated CSS custom properties. The
+    background URL is supplied only while the managed image still exists, so
+    a removed image falls back to the configured background color.
+    """
+    theme = cast(ThemeSettings, current_app.extensions["photobooth.theme"])
+    backgrounds = cast(
+        BackgroundService, current_app.extensions["photobooth.backgrounds"]
+    )
+    image = theme.background.image
+    background_url = (
+        url_for("media.background", background_id=image)
+        if image is not None and backgrounds.exists(image)
+        else None
+    )
+    return {
+        "theme": theme,
+        "theme_variables": theme.css_variables(),
+        "background_url": background_url,
+    }
 
 
 @booth_blueprint.get("/")
@@ -137,6 +164,7 @@ def review(photo_id: str) -> str:
         "booth/review.html",
         photo=photo,
         photo_url=url_for("media.photo", photo_id=photo_id),
+        photo_aspect=f"{photo.width / photo.height:.4f}",
         qr_data_uri=qr_data_uri,
         download_error=download_error,
         print_status=print_status,
