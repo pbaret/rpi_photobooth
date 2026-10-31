@@ -26,3 +26,8 @@ Run the automated checks:
 Probe webcam index 0 manually (requires a connected webcam):
 
     uv run python scripts/diagnose_opencv_camera.py
+
+On the Raspberry Pi, validate the rpicam camera stack without the application
+(see `docs/troubleshooting.md`):
+
+    scripts/pi-diagnostics.sh
