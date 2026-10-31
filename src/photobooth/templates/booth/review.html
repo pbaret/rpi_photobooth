@@ -4,170 +4,62 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>Vérifier la photo</title>
-    <style>
-      :root {
-        color-scheme: dark;
-        font-family: system-ui, sans-serif;
-        background: #171a18;
-        color: #f5f6f3;
-      }
-
-      * { box-sizing: border-box; }
-      html, body { width: 100%; min-height: 100%; margin: 0; }
-      body { min-height: 100dvh; }
-
-      .review {
-        display: grid;
-        grid-template-rows: auto minmax(0, 1fr) auto auto auto;
-        gap: 12px;
-        width: 100%;
-        min-height: 100dvh;
-        padding: max(12px, env(safe-area-inset-top)) 16px
-          max(12px, env(safe-area-inset-bottom));
-      }
-
-      header { text-align: center; }
-      h1 { margin: 0; font-size: 1.25rem; }
-      .photo-frame {
-        display: grid;
-        min-height: 0;
-        place-items: center;
-        overflow: hidden;
-        background: #050605;
-      }
-      .photo-frame img { display: block; width: 100%; height: 100%; object-fit: contain; }
-      .qr-reservation {
-        display: grid;
-        gap: 8px;
-        place-items: center;
-        color: #c2c8c1;
-        text-align: center;
-      }
-      .qr-reservation p { max-width: 34ch; margin: 0; }
-      .qr-reservation img {
-        display: block;
-        width: min(180px, 42vw);
-        aspect-ratio: 1;
-        background: #fff;
-        image-rendering: pixelated;
-      }
-      .status { min-height: 1.5em; margin: 0; text-align: center; }
-      .actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-      .actions form { min-width: 0; }
-      button {
-        min-width: 0;
-        min-height: 58px;
-        padding: 10px 8px;
-        border: 0;
-        border-radius: 4px;
-        background: #f1c84b;
-        color: #171a18;
-        font: inherit;
-        font-size: 1rem;
-        font-weight: 700;
-        cursor: pointer;
-        touch-action: manipulation;
-      }
-      .actions button { width: 100%; }
-      .delete-button { background: #ef8a76; }
-
-      .slideshow {
-        position: fixed;
-        z-index: 10;
-        inset: 0;
-        display: grid;
-        place-items: center;
-        overflow: hidden;
-        background: #050605;
-        touch-action: manipulation;
-      }
-      .slideshow[hidden] { display: none; }
-      .slideshow img {
-        display: block;
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-      }
-      .slideshow p {
-        position: absolute;
-        right: max(20px, env(safe-area-inset-right));
-        bottom: max(20px, env(safe-area-inset-bottom));
-        left: max(20px, env(safe-area-inset-left));
-        margin: 0;
-        padding: 14px 18px;
-        background: rgb(0 0 0 / 76%);
-        color: #fff;
-        font-size: clamp(1.1rem, 4vh, 2rem);
-        font-weight: 700;
-        text-align: center;
-      }
-
-      button:disabled { cursor: wait; opacity: 0.65; }
-      button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
-
-      @media (orientation: landscape) and (min-width: 700px) {
-        .review {
-          grid-template-columns: minmax(0, 1fr) minmax(230px, 32%);
-          grid-template-rows: auto minmax(0, 1fr) auto;
-          gap: 8px 14px;
-          padding-left: max(16px, env(safe-area-inset-left));
-          padding-right: max(16px, env(safe-area-inset-right));
-        }
-        header, .photo-frame { grid-column: 1; }
-        header { text-align: left; }
-        .qr-reservation, .status, .actions { grid-column: 2; }
-        .qr-reservation { grid-row: 1; align-self: end; }
-        .qr-reservation img { width: min(132px, 22vh); }
-        .status { grid-row: 2; align-self: end; }
-        .actions { grid-row: 3; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-        .actions button { min-height: 52px; padding: 8px 4px; font-size: .9rem; }
-      }
-    </style>
+    {% include "booth/_theme.html" %}
   </head>
-  <body>
-    <main class="review" id="review" data-photo-id="{{ photo.photo_id }}"
+  <body class="backdrop{% if background_url %} has-background-image{% endif %}">
+    <main class="stage {{ theme.review.stage_classes }}" id="review" data-photo-id="{{ photo.photo_id }}"
+      style="--hero-aspect: {{ photo_aspect }}"
       data-idle-timeout-seconds="{{ idle_timeout_seconds }}"
       data-slideshow-enabled="{{ 'true' if slideshow_enabled else 'false' }}"
       data-slideshow-interval-seconds="{{ slideshow_interval_seconds }}"
       data-slideshow-feed-url="{{ url_for('booth.slideshow_photos') }}"
       data-booth-url="{{ url_for('booth.index') }}">
-      <header><h1>Vérifier la photo</h1></header>
-      <section class="photo-frame" aria-label="Photo capturée">
-        <img src="{{ photo_url }}" alt="Photo capturée">
-      </section>
-      <section class="qr-reservation" aria-label="Téléchargement de la photo">
-        {% if qr_data_uri %}
-        {% if wifi_network_name %}
-        <p>Connectez-vous au réseau Wi-Fi « {{ wifi_network_name }} » puis scannez le QR code pour télécharger votre photo.</p>
-        {% else %}
-        <p>Connectez-vous au réseau Wi-Fi du photobooth puis scannez le QR code pour télécharger votre photo.</p>
-        {% endif %}
-        <img src="{{ qr_data_uri }}" alt="QR code pour télécharger cette photo">
-        {% else %}
-        <p>{{ download_error }}</p>
-        {% endif %}
-      </section>
-      <p class="status" role="status" aria-live="polite">
-        {% if print_status == "placeholder" %}Impression non configurée sur cet appareil.{% endif %}
-        {% if print_status == "submitted" %}Demande d'impression envoyée.{% endif %}
-        {% if print_status == "error" %}L'impression n'a pas pu être effectuée.{% endif %}
-      </p>
-      <nav class="actions" aria-label="Actions sur la photo">
-        <form action="{{ url_for('booth.retake', photo_id=photo.photo_id) }}" method="post">
-          <button type="submit">Nouvelle Photo</button>
-        </form>
-        <form action="{{ url_for('booth.delete_photo', photo_id=photo.photo_id) }}" method="post"
-          onsubmit="return window.confirm('Supprimer définitivement cette photo ?')">
-          <button class="delete-button" type="submit">Supprimer</button>
-        </form>
-        <form id="print-form" action="{{ url_for('booth.print_photo', photo_id=photo.photo_id) }}" method="post">
-          <button id="print-button" type="submit">Imprimer</button>
-        </form>
-      </nav>
+      <h1 class="visually-hidden">Vérifier la photo</h1>
+      <div class="hero-zone">
+        <section class="hero-frame photo-frame" aria-label="Photo capturée">
+          <img src="{{ photo_url }}" alt="Photo capturée">
+          <p class="status" role="status" aria-live="polite">
+            {%- if print_status == "placeholder" %}Impression non configurée sur cet appareil.
+            {%- elif print_status == "submitted" %}Demande d'impression envoyée.
+            {%- elif print_status == "error" %}L'impression n'a pas pu être effectuée.
+            {%- endif -%}
+          </p>
+        </section>
+      </div>
+      <div class="{{ theme.review.qr_position.css_classes }}">
+        <section class="panel qr-panel" aria-label="Téléchargement de la photo">
+          {% if qr_data_uri %}
+          {% if wifi_network_name %}
+          <p>Connectez-vous au réseau Wi-Fi « {{ wifi_network_name }} » puis scannez le QR code pour télécharger votre photo.</p>
+          {% else %}
+          <p>Connectez-vous au réseau Wi-Fi du photobooth puis scannez le QR code pour télécharger votre photo.</p>
+          {% endif %}
+          <div class="qr-plate"><img src="{{ qr_data_uri }}" alt="QR code pour télécharger cette photo"></div>
+          {% else %}
+          <p>{{ download_error }}</p>
+          {% endif %}
+        </section>
+      </div>
+      <div class="{{ theme.review.actions_position.css_classes }}">
+        <div class="panel action-panel">
+          <nav class="action-list" aria-label="Actions sur la photo">
+            <form action="{{ url_for('booth.retake', photo_id=photo.photo_id) }}" method="post">
+              <button class="btn btn-primary" type="submit">Nouvelle Photo</button>
+            </form>
+            <form id="print-form" action="{{ url_for('booth.print_photo', photo_id=photo.photo_id) }}" method="post">
+              <button class="btn btn-secondary" id="print-button" type="submit">Imprimer</button>
+            </form>
+            <form action="{{ url_for('booth.delete_photo', photo_id=photo.photo_id) }}" method="post"
+              onsubmit="return window.confirm('Supprimer définitivement cette photo ?')">
+              <button class="btn btn-danger delete-button" type="submit">Supprimer</button>
+            </form>
+          </nav>
+        </div>
+      </div>
     </main>
-    <section class="slideshow" id="slideshow-panel" aria-label="Diaporama" hidden>
+    <section class="slideshow backdrop" id="slideshow-panel" aria-label="Diaporama" hidden>
       <img id="slideshow-image" alt="" hidden>
-      <p role="status">Touchez l'écran pour démarrer</p>
+      <p class="wake-hint" role="status">Touchez l'écran pour démarrer</p>
     </section>
     <script>
       const printForm = document.getElementById("print-form");

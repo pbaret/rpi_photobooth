@@ -41,6 +41,14 @@
       .actions { display: flex; justify-content: flex-end; padding-top: 18px; border-top: 1px solid #566057; }
       button { min-width: 180px; padding: 10px 20px; border: 0; border-radius: 4px; background: #f1c84b; color: #171a18; font: inherit; font-weight: 700; touch-action: manipulation; }
       :focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+      #appearance { margin-top: 36px; padding-top: 20px; border-top: 3px solid #566057; }
+      .section-title { font-size: 1.35rem; }
+      input[type="color"] { padding: 4px; cursor: pointer; }
+      input[type="file"] { padding: 8px; }
+      .theme-sample { display: grid; gap: 8px; align-content: center; justify-items: start; padding: 14px; border-radius: 6px; background: var(--sample-background); color: var(--sample-foreground); }
+      .theme-sample-title { font-weight: 800; font-size: 1.2rem; }
+      .theme-sample-panel { padding: 6px 10px; border-radius: 4px; background: var(--sample-surface); }
+      .theme-sample-button { padding: 8px 16px; border-radius: 999px; background: var(--sample-primary); color: var(--sample-primary-text); font-weight: 700; }
       @media (max-width: 600px) {
         main { padding-top: 14px; }
         header { align-items: flex-start; }
@@ -181,6 +189,110 @@
 
         <div class="actions"><button type="submit">Save settings</button></div>
       </form>
+
+      {% macro theme_select(name, label, options) %}
+      <label for="{{ name }}">{{ label }}
+        <select id="{{ name }}" name="{{ name }}" aria-invalid="{{ 'true' if errors.get(name) else 'false' }}">
+          {% for value, text in options %}
+          <option value="{{ value }}" {% if theme_values.get(name) == value %}selected{% endif %}>{{ text }}</option>
+          {% endfor %}
+        </select>
+        {% if errors.get(name) %}<span class="error">{{ errors.get(name) }}</span>{% endif %}
+      </label>
+      {% endmacro %}
+      {% macro theme_color(name, label) %}
+      <label for="{{ name }}">{{ label }}
+        <input id="{{ name }}" name="{{ name }}" type="color" value="{{ theme_values.get(name, '') }}" data-theme-sample="{{ name }}" aria-invalid="{{ 'true' if errors.get(name) else 'false' }}">
+        {% if errors.get(name) %}<span class="error">{{ errors.get(name) }}</span>{% endif %}
+      </label>
+      {% endmacro %}
+
+      <form id="appearance" action="{{ url_for('admin.update_theme') }}" method="post" enctype="multipart/form-data">
+        <h2 class="section-title">Event appearance</h2>
+        <p class="camera-meta">Participant screens only. Values are stored in the event theme file and apply on the next booth page load.</p>
+        {% if theme_saved %}<p class="notice" role="status">Appearance was saved and is active.</p>{% endif %}
+        {% if errors.get('theme_form') %}<p class="notice error" role="alert">{{ errors.get('theme_form') }}</p>{% endif %}
+
+        <fieldset>
+          <legend><h2>Colors</h2></legend>
+          <div class="fields">
+            {{ theme_color('theme_colors_background', 'Background') }}
+            {{ theme_color('theme_colors_surface', 'Panels (surface)') }}
+            {{ theme_color('theme_colors_foreground', 'Text') }}
+            {{ theme_color('theme_colors_primary', 'Primary buttons') }}
+            {{ theme_color('theme_colors_primary_text', 'Primary button text') }}
+            <div class="theme-sample" id="theme-sample" aria-hidden="true">
+              <span class="theme-sample-title">Event title</span>
+              <span class="theme-sample-panel">Panel text</span>
+              <span class="theme-sample-button">Prendre une photo</span>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend><h2>Background</h2></legend>
+          <div class="fields">
+            <label for="theme_background_image">Background image
+              <select id="theme_background_image" name="theme_background_image" aria-invalid="{{ 'true' if errors.get('theme_background_image') else 'false' }}">
+                <option value="">None (solid background color)</option>
+                {% for value, text in background_choices %}
+                <option value="{{ value }}" {% if theme_values.get('theme_background_image') == value %}selected{% endif %}>{{ text }}</option>
+                {% endfor %}
+              </select>
+              {% if errors.get('theme_background_image') %}<span class="error">{{ errors.get('theme_background_image') }}</span>{% endif %}
+            </label>
+            <label for="theme_background_upload">Upload new image (selects it)
+              <input id="theme_background_upload" name="theme_background_upload" type="file" accept="image/jpeg,image/png,image/webp" aria-invalid="{{ 'true' if errors.get('theme_background_upload') else 'false' }}">
+              {% if errors.get('theme_background_upload') %}<span class="error">{{ errors.get('theme_background_upload') }}</span>{% endif %}
+            </label>
+            {{ theme_select('theme_background_fit', 'Image fit', theme_options.background_fit) }}
+            {{ theme_select('theme_background_position', 'Image position', theme_options.background_position) }}
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend><h2>Booth preview layout</h2></legend>
+          <div class="fields">
+            {{ theme_select('theme_preview_position', 'Camera preview position', theme_options.hero_position) }}
+            {{ theme_select('theme_preview_size', 'Camera preview size', theme_options.hero_size) }}
+            {{ theme_select('theme_preview_fit', 'Camera preview display', theme_options.preview_fit) }}
+            {{ theme_select('theme_preview_capture_position', 'Capture button position', theme_options.anchor) }}
+            <label for="theme_preview_title_visible">Booth title
+              <span class="check-row"><input id="theme_preview_title_visible" name="theme_preview_title_visible" type="checkbox" value="true" {% if theme_values.get('theme_preview_title_visible') == 'true' %}checked{% endif %}> Shown</span>
+            </label>
+            {{ theme_select('theme_preview_title_position', 'Booth title position', theme_options.anchor) }}
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend><h2>Review layout</h2></legend>
+          <div class="fields">
+            {{ theme_select('theme_review_photo_position', 'Photo position', theme_options.hero_position) }}
+            {{ theme_select('theme_review_photo_size', 'Photo size', theme_options.hero_size) }}
+            {{ theme_select('theme_review_qr_position', 'QR code panel position', theme_options.anchor) }}
+            {{ theme_select('theme_review_actions_position', 'Action buttons position', theme_options.anchor) }}
+          </div>
+          <p class="camera-meta">The QR and action panels may share a side only as top and bottom, and a centered panel cannot share its row.</p>
+        </fieldset>
+
+        <div class="actions"><button type="submit">Save appearance</button></div>
+      </form>
     </main>
+    <script>
+      // Live color sample only; the booth itself is the source of truth.
+      const sample = document.getElementById("theme-sample");
+      const sampleProperties = {
+        theme_colors_background: "--sample-background",
+        theme_colors_surface: "--sample-surface",
+        theme_colors_foreground: "--sample-foreground",
+        theme_colors_primary: "--sample-primary",
+        theme_colors_primary_text: "--sample-primary-text",
+      };
+      for (const input of document.querySelectorAll("[data-theme-sample]")) {
+        const update = () => sample.style.setProperty(sampleProperties[input.name], input.value);
+        input.addEventListener("input", update);
+        update();
+      }
+    </script>
   </body>
 </html>

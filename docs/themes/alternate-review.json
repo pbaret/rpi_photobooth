@@ -1,0 +1,21 @@
+{
+  "colors": {
+    "background": "#1b0f3a",
+    "surface": "#2c1d5c",
+    "foreground": "#ffffff",
+    "primary": "#ff4f8b",
+    "primary_text": "#ffffff"
+  },
+  "preview": {
+    "position": "center",
+    "size": "medium",
+    "capture_position": "bottom-center",
+    "title_position": "top-center"
+  },
+  "review": {
+    "photo_position": "center",
+    "photo_size": "small",
+    "qr_position": "left",
+    "actions_position": "right"
+  }
+}

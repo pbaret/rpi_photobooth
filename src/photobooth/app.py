@@ -13,9 +13,14 @@ from photobooth.routes.admin import admin_blueprint
 from photobooth.routes.booth import booth_blueprint
 from photobooth.routes.downloads import downloads_blueprint
 from photobooth.routes.media import media_blueprint
+from photobooth.services.backgrounds import BackgroundService
 from photobooth.services.downloads import DownloadService
 from photobooth.services.preview import PreviewService
 from photobooth.services.gallery import GalleryService
+from photobooth.theme import ThemeSettings, load_theme, theme_path_for
+
+# Bounds admin background uploads; every other request body is tiny.
+_MAX_REQUEST_BYTES = 25 * 1024 * 1024
 
 
 def create_app(
@@ -23,14 +28,22 @@ def create_app(
     camera_backend: CameraBackend | None = None,
     gallery_service: GalleryService | None = None,
     printer_backend: PrinterBackend | None = None,
+    theme: ThemeSettings | None = None,
 ) -> Flask:
     """Build the Flask app, select its camera, and register its HTTP adapters.
 
     The app owns one PreviewService and one camera backend. Tests may inject a
-    backend; otherwise startup configuration selects the implementation.
+    backend; otherwise startup configuration selects the implementation. The
+    event theme is read from ``theme.json`` beside the configuration file
+    unless one is injected; a missing theme file yields the default theme.
     """
     active_configuration = (
         configuration if configuration is not None else load_configuration()
+    )
+    active_theme = (
+        theme
+        if theme is not None
+        else load_theme(theme_path_for(active_configuration.config_path))
     )
     active_camera = (
         camera_backend
@@ -46,8 +59,13 @@ def create_app(
     active_printer = printer_backend if printer_backend is not None else NullPrinterBackend()
     app = Flask(__name__)
     app.config["DEBUG"] = active_configuration.startup.debug
+    app.config["MAX_CONTENT_LENGTH"] = _MAX_REQUEST_BYTES
     app.extensions["photobooth.configuration"] = active_configuration
     app.extensions["photobooth.persisted_configuration"] = active_configuration
+    app.extensions["photobooth.theme"] = active_theme
+    app.extensions["photobooth.backgrounds"] = BackgroundService(
+        active_configuration.startup.data_root
+    )
     app.extensions["photobooth.camera"] = active_camera
     app.extensions["photobooth.gallery"] = active_gallery
     app.extensions["photobooth.downloads"] = DownloadService(

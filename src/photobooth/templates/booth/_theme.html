@@ -1,0 +1,13 @@
+{#- Participant stylesheet plus validated event-theme custom properties.
+    theme_variables and background_url come from booth.participant_theme. -#}
+<link rel="stylesheet" href="{{ url_for('static', filename='participant.css') }}">
+<style>
+  :root {
+  {%- for name, value in theme_variables.items() %}
+    {{ name }}: {{ value }};
+  {%- endfor %}
+  {%- if background_url %}
+    --booth-background-image: url("{{ background_url }}");
+  {%- endif %}
+  }
+</style>

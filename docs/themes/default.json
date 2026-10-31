@@ -1,0 +1,28 @@
+{
+  "colors": {
+    "background": "#111316",
+    "surface": "#1f2328",
+    "foreground": "#f5f1e8",
+    "primary": "#f2b544",
+    "primary_text": "#15171a"
+  },
+  "background": {
+    "image": null,
+    "fit": "cover",
+    "position": "center"
+  },
+  "preview": {
+    "position": "left",
+    "size": "large",
+    "fit": "contain",
+    "capture_position": "right",
+    "title_visible": true,
+    "title_position": "top-right"
+  },
+  "review": {
+    "photo_position": "left",
+    "photo_size": "medium",
+    "qr_position": "top-right",
+    "actions_position": "bottom-right"
+  }
+}

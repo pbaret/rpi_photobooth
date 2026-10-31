@@ -115,7 +115,7 @@ def load_configuration(
     default path is ``config.json`` in the process working directory.
     """
     selected_path = config_path or Path("config.json")
-    document = _load_json_object(selected_path)
+    document = read_json_object(selected_path)
     legacy_booth_keys = {
         "booth_name",
         "wifi_network_name",
@@ -211,7 +211,7 @@ def save_configuration(configuration: ApplicationConfig) -> None:
     """
     startup = configuration.startup
     settings = configuration.booth
-    payload = {
+    payload: dict[str, object] = {
         "startup": {
             "bind_host": startup.bind_host,
             "port": startup.port,
@@ -231,15 +231,24 @@ def save_configuration(configuration: ApplicationConfig) -> None:
             "slideshow_interval_seconds": settings.slideshow_interval_seconds,
         },
     }
-    config_path = configuration.config_path
-    config_path.parent.mkdir(parents=True, exist_ok=True)
+    write_json_atomically(configuration.config_path, payload)
+
+
+def write_json_atomically(path: Path, payload: dict[str, object]) -> None:
+    """Write one JSON document so readers see either the old or the new file.
+
+    The temporary file is created beside the destination so replacement stays
+    on the same filesystem. ``OSError`` is propagated after the temporary file
+    is removed; the previous destination file is left untouched.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
             mode="w",
             encoding="utf-8",
-            dir=config_path.parent,
-            prefix=f".{config_path.name}.",
+            dir=path.parent,
+            prefix=f".{path.name}.",
             suffix=".tmp",
             delete=False,
         ) as temporary_file:
@@ -248,14 +257,18 @@ def save_configuration(configuration: ApplicationConfig) -> None:
             temporary_file.write("\n")
             temporary_file.flush()
             os.fsync(temporary_file.fileno())
-        os.replace(temporary_path, config_path)
+        os.replace(temporary_path, path)
     finally:
         if temporary_path is not None:
             temporary_path.unlink(missing_ok=True)
 
 
-def _load_json_object(config_path: Path) -> dict[str, object]:
-    """Decode a JSON object, treating a missing file as an empty document."""
+def read_json_object(config_path: Path) -> dict[str, object]:
+    """Decode a JSON object, treating a missing file as an empty document.
+
+    Unreadable files, invalid JSON, non-object documents and non-string keys
+    raise ``ConfigurationError``; a corrupt file is never silently replaced.
+    """
     if not config_path.exists():
         return {}
     try:

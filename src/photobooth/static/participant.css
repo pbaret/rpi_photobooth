@@ -1,0 +1,512 @@
+/*
+ * Participant stylesheet shared by the booth, review and slideshow screens.
+ *
+ * Event themes never inject CSS. The server only sets the validated
+ * --booth-* custom properties (see photobooth/theme.py) and allowlisted
+ * classes: hero-{left|center|right}, hero-size-{small|medium|large|full},
+ * hero-fit-{contain|cover} on the stage and
+ * anchor anchor-x-{left|center|right} anchor-y-{top|middle|bottom} on widgets.
+ *
+ * Sizes are expressed in vmin so a 2560x1440 browser and the Phab 2 Pro's
+ * real CSS viewport render the same proportions.
+ */
+
+:root {
+  --booth-background-color: #111316;
+  --booth-surface-color: #1f2328;
+  --booth-foreground-color: #f5f1e8;
+  --booth-primary-color: #f2b544;
+  --booth-primary-text-color: #15171a;
+  --booth-background-fit: cover;
+  --booth-background-position: center;
+  /* Fixed, not themed: mid-tone red stays legible on light and dark surfaces. */
+  --booth-danger-color: #e0503f;
+
+  --g: max(10px, 3vmin);
+  --radius: max(6px, 2vmin);
+  --touch: max(44px, 11vmin);
+  --touch-small: max(40px, 9.4vmin);
+  --font-small: clamp(12px, 3.4vmin, 50px);
+  --font-body: clamp(13px, 3.8vmin, 56px);
+  --font-button: clamp(15px, 4vmin, 60px);
+  --font-title: clamp(18px, 5.5vmin, 84px);
+  --font-stack: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+[hidden] { display: none !important; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  color: var(--booth-foreground-color);
+  font-family: var(--font-stack);
+  font-size: var(--font-body);
+  line-height: 1.3;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Event backdrop: solid color, optionally covered by managed artwork. */
+.backdrop {
+  background-color: var(--booth-background-color);
+  background-image: var(--booth-background-image, none);
+  background-size: var(--booth-background-fit);
+  background-position: var(--booth-background-position);
+  background-repeat: no-repeat;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- stage */
+
+.stage {
+  --stage-w: 100vw;
+  --stage-h: 100vh;
+  --inner-w: calc(var(--stage-w) - 2 * var(--g));
+  --inner-h: calc(var(--stage-h) - 2 * var(--g));
+  --hero-share: 0.76;
+  --hero-aspect: 1.7778;
+  --hero-w: min(
+    calc(var(--inner-w) * var(--hero-share)),
+    calc(var(--inner-h) * var(--hero-aspect))
+  );
+  --zone-min: clamp(150px, 20vw, 520px);
+  --free-left: 0px;
+  --free-right: 0px;
+
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
+
+@supports (height: 100dvh) {
+  .stage { --stage-h: 100dvh; }
+}
+
+.hero-size-small { --hero-share: 0.5; }
+.hero-size-medium { --hero-share: 0.64; }
+.hero-size-large { --hero-share: 0.76; }
+.hero-size-full { --hero-share: 1; }
+
+.hero-fit-cover { --hero-w: calc(var(--inner-w) * var(--hero-share)); }
+
+.hero-left {
+  --free-right: calc(var(--inner-w) - var(--hero-w) - var(--g));
+}
+
+.hero-center {
+  --free-left: calc((var(--inner-w) - var(--hero-w)) / 2 - var(--g));
+  --free-right: calc((var(--inner-w) - var(--hero-w)) / 2 - var(--g));
+}
+
+.hero-right {
+  --free-left: calc(var(--inner-w) - var(--hero-w) - var(--g));
+}
+
+.hero-zone {
+  position: absolute;
+  inset: var(--g);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.hero-left .hero-zone { justify-content: flex-start; }
+.hero-right .hero-zone { justify-content: flex-end; }
+
+.hero-frame {
+  position: relative;
+  flex: 0 0 auto;
+  width: var(--hero-w);
+  aspect-ratio: var(--hero-aspect);
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: #000;
+  container-type: inline-size;
+  pointer-events: auto;
+}
+
+.hero-fit-cover .hero-frame {
+  aspect-ratio: auto;
+  height: 100%;
+}
+
+.hero-frame > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.hero-fit-cover .hero-frame > img { object-fit: cover; }
+
+/* Widget anchors: side anchors fill the free column beside the hero, or a
+   minimum width overlapping it when the hero leaves no room. */
+.anchor {
+  position: absolute;
+  z-index: 2;
+  top: var(--g);
+  bottom: var(--g);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--g) * 0.6);
+  pointer-events: none;
+  text-align: center;
+}
+
+.anchor > * {
+  max-width: 100%;
+  pointer-events: auto;
+}
+
+.anchor-x-left { left: var(--g); width: max(var(--free-left), var(--zone-min)); }
+.anchor-x-right { right: var(--g); width: max(var(--free-right), var(--zone-min)); }
+.anchor-x-center { left: var(--g); right: var(--g); }
+.anchor-x-center > * { max-width: min(100%, 60vw); }
+.anchor-y-top { justify-content: flex-start; }
+.anchor-y-bottom { justify-content: flex-end; }
+
+/* -------------------------------------------------------------- shared */
+
+.panel {
+  padding: calc(var(--g) * 0.6);
+  border-radius: var(--radius);
+  background: var(--booth-surface-color);
+  color: var(--booth-foreground-color);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: var(--touch);
+  margin: 0;
+  padding: 0.4em 0.8em;
+  border: max(2px, 0.4vmin) solid transparent;
+  border-radius: 999px;
+  font: inherit;
+  font-size: var(--font-button);
+  font-weight: 750;
+  line-height: 1.1;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.btn:active { transform: scale(0.97); }
+.btn:disabled { cursor: wait; opacity: 0.6; }
+
+.btn:focus-visible,
+.shutter:focus-visible {
+  outline: max(3px, 0.6vmin) solid var(--booth-foreground-color);
+  outline-offset: max(3px, 0.6vmin);
+}
+
+.btn-primary {
+  background: var(--booth-primary-color);
+  color: var(--booth-primary-text-color);
+}
+
+.btn-secondary {
+  min-height: var(--touch-small);
+  border-color: var(--booth-foreground-color);
+  background: var(--booth-surface-color);
+  color: var(--booth-foreground-color);
+}
+
+.btn-danger {
+  min-height: var(--touch-small);
+  border-color: var(--booth-danger-color);
+  background: var(--booth-surface-color);
+  color: var(--booth-danger-color);
+  font-size: calc(var(--font-button) * 0.85);
+}
+
+.notice {
+  margin: 0;
+  padding: 0.5em 1em;
+  border-radius: 999px;
+  background: var(--booth-surface-color);
+  font-size: var(--font-small);
+}
+
+/* Full-screen scrim with a centered card, used for errors. */
+.overlay {
+  position: fixed;
+  z-index: 12;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--g);
+  background: rgb(0 0 0 / 62%);
+}
+
+.overlay-card {
+  display: grid;
+  gap: calc(var(--g) * 0.8);
+  justify-items: center;
+  width: min(100%, 110vmin);
+  padding: calc(var(--g) * 1.5);
+  text-align: center;
+}
+
+.overlay-card .overlay-title {
+  margin: 0;
+  font-size: var(--font-title);
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.overlay-card p { margin: 0; }
+.overlay-card .btn { min-width: min(100%, 40vmin); }
+
+/* ----------------------------------------------------------- booth IDLE */
+
+.booth-title {
+  margin: 0;
+  font-size: var(--font-title);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.has-background-image .booth-title {
+  padding: 0.3em 0.6em;
+  border-radius: var(--radius);
+  background: var(--booth-surface-color);
+}
+
+/* The capture button is a camera shutter: a filled disc inside a ring. */
+.shutter {
+  display: grid;
+  place-items: center;
+  width: clamp(120px, 30vmin, 460px);
+  aspect-ratio: 1;
+  margin: max(6px, 1.6vmin);
+  padding: 0.5em;
+  border: 0;
+  border-radius: 50%;
+  background: var(--booth-primary-color);
+  box-shadow:
+    0 0 0 max(4px, 0.9vmin) var(--booth-background-color),
+    0 0 0 max(7px, 1.7vmin) var(--booth-primary-color);
+  color: var(--booth-primary-text-color);
+  font: inherit;
+  font-size: var(--font-button);
+  font-weight: 800;
+  line-height: 1.1;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.shutter:active { transform: scale(0.96); }
+.shutter:disabled { cursor: wait; opacity: 0.6; }
+
+/* Centered anchors overlay the preview, so the shutter is smaller there. */
+.anchor-x-center .shutter {
+  width: clamp(110px, 24vmin, 360px);
+  font-size: calc(var(--font-button) * 0.85);
+}
+
+/* ------------------------------------------------------ booth COUNTDOWN */
+
+.countdown {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 22%);
+}
+
+.countdown-disc {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  width: 46vmin;
+  width: min(46cqi, 82vmin);
+  aspect-ratio: 1;
+  border: max(4px, 0.8vmin) solid var(--booth-primary-color);
+  border-radius: 50%;
+  background: rgb(0 0 0 / 55%);
+  color: #fff;
+  text-shadow: 0 0.04em 0.12em rgb(0 0 0 / 50%);
+}
+
+.countdown-value {
+  display: block;
+  font-size: 26vmin;
+  font-size: min(26cqi, 46vmin);
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.countdown-label {
+  margin: 0.2em 0 0;
+  font-size: var(--font-body);
+  font-weight: 700;
+}
+
+/* ------------------------------------------------------ booth CAPTURING */
+
+/* Intentionally unthemed: the white surface is supplemental frontal light. */
+.capturing-panel {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--g);
+  background: #fff;
+  color: #111;
+  text-align: center;
+}
+
+.capturing-panel .state-label {
+  margin: 0;
+  font-size: clamp(2rem, 12vmin, 10rem);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+/* --------------------------------------------------------------- REVIEW */
+
+.qr-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--g) * 0.5);
+  width: min(100%, 60vmin);
+  --qr-size: clamp(108px, 30vmin, 480px);
+}
+
+.qr-panel p {
+  margin: 0;
+  font-size: var(--font-small);
+}
+
+.qr-plate {
+  max-width: 100%;
+  padding: max(4px, 0.8vmin);
+  border-radius: calc(var(--radius) * 0.6);
+  background: #fff;
+}
+
+.qr-plate img {
+  display: block;
+  width: var(--qr-size);
+  max-width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  image-rendering: pixelated;
+}
+
+.anchor-x-center .qr-panel {
+  flex-direction: row-reverse;
+  width: auto;
+  text-align: left;
+}
+
+.anchor-x-center .qr-panel p { max-width: 40vmin; }
+
+.action-panel {
+  display: grid;
+  gap: calc(var(--g) * 0.5);
+  width: min(100%, 60vmin);
+}
+
+.anchor-x-center .action-panel { width: auto; }
+
+.action-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--g) * 0.5);
+  justify-content: center;
+}
+
+.action-list form { display: flex; flex: 1 1 auto; min-width: 0; }
+.action-list .btn { flex: 1 1 auto; white-space: nowrap; }
+.action-list form:first-child { flex-basis: 100%; }
+.action-list form:first-child .btn { white-space: normal; }
+.anchor-x-center .action-list { flex-wrap: nowrap; }
+.anchor-x-center .action-list form:first-child { flex-basis: auto; }
+
+.status {
+  position: absolute;
+  top: calc(var(--g) * 0.6);
+  right: var(--g);
+  left: var(--g);
+  width: fit-content;
+  margin: 0 auto;
+  padding: 0.45em 1.1em;
+  border-radius: 999px;
+  background: var(--booth-surface-color);
+  color: var(--booth-foreground-color);
+  font-size: var(--font-small);
+  font-weight: 700;
+  text-align: center;
+}
+
+.status:empty { display: none; }
+
+/* ------------------------------------------------------------ SLIDESHOW */
+
+.slideshow {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  place-items: center;
+  padding: var(--g) var(--g) calc(var(--g) * 2 + var(--touch));
+  overflow: hidden;
+  touch-action: manipulation;
+}
+
+.slideshow img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.slideshow .wake-hint {
+  position: absolute;
+  right: var(--g);
+  bottom: var(--g);
+  left: var(--g);
+  width: fit-content;
+  margin: 0 auto;
+  padding: 0.5em 1.4em;
+  border-radius: 999px;
+  background: var(--booth-primary-color);
+  color: var(--booth-primary-text-color);
+  font-size: var(--font-button);
+  font-weight: 800;
+  text-align: center;
+}

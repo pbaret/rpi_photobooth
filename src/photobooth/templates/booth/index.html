@@ -4,205 +4,48 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>{{ booth_name }}</title>
-    <style>
-      :root {
-        color-scheme: dark;
-        font-family: system-ui, sans-serif;
-        background: #171a18;
-        color: #f5f6f3;
-      }
-
-      * { box-sizing: border-box; }
-
-      html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
-
-      body { min-height: 100dvh; }
-
-      .booth {
-        position: relative;
-        display: flex;
-        flex-direction: column;
-        width: 100%;
-        height: 100dvh;
-        padding: max(12px, env(safe-area-inset-top)) 16px
-          max(12px, env(safe-area-inset-bottom));
-        gap: 8px;
-      }
-
-      header { flex: 0 0 auto; text-align: center; }
-      h1 { margin: 0; font-size: 1.25rem; }
-
-      .preview {
-        position: relative;
-        display: grid;
-        flex: 1 1 auto;
-        min-height: 0;
-        place-items: center;
-        overflow: hidden;
-        background: #050605;
-      }
-
-      .preview img {
-        display: block;
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-      }
-
-      .shade {
-        position: absolute;
-        inset: 0;
-        display: grid;
-        place-items: center;
-        padding: 20px;
-        background: rgb(0 0 0 / 58%);
-        text-align: center;
-      }
-
-      .shade[hidden], [hidden] { display: none; }
-
-      .capturing-panel {
-        position: fixed;
-        z-index: 20;
-        inset: 0;
-        display: grid;
-        place-items: center;
-        padding: 24px;
-        background: #fff;
-        color: #111;
-        text-align: center;
-      }
-
-      .capturing-panel[hidden] { display: none; }
-
-      .capturing-panel .state-label {
-        margin: 0;
-        font-size: clamp(2rem, 8vh, 4rem);
-        font-weight: 700;
-      }
-
-      .slideshow {
-        position: fixed;
-        z-index: 10;
-        inset: 0;
-        display: grid;
-        place-items: center;
-        overflow: hidden;
-        background: #050605;
-        touch-action: manipulation;
-      }
-
-      .slideshow[hidden] { display: none; }
-
-      .slideshow img {
-        display: block;
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-      }
-
-      .slideshow p {
-        position: absolute;
-        right: max(20px, env(safe-area-inset-right));
-        bottom: max(20px, env(safe-area-inset-bottom));
-        left: max(20px, env(safe-area-inset-left));
-        margin: 0;
-        padding: 14px 18px;
-        background: rgb(0 0 0 / 76%);
-        color: #fff;
-        font-size: clamp(1.1rem, 4vh, 2rem);
-        font-weight: 700;
-        text-align: center;
-      }
-
-      .countdown-value {
-        display: block;
-        font-size: clamp(5rem, 20vh, 12rem);
-        font-weight: 700;
-        line-height: 1;
-      }
-
-      .state-label { margin: 12px 0 0; font-size: 1.5rem; }
-
-      footer {
-        display: grid;
-        flex: 0 0 auto;
-        min-height: 64px;
-        place-items: center;
-      }
-
-      button {
-        min-width: min(100%, 320px);
-        min-height: 56px;
-        padding: 12px 24px;
-        border: 0;
-        border-radius: 4px;
-        background: #f1c84b;
-        color: #171a18;
-        font: inherit;
-        font-size: 1.2rem;
-        font-weight: 700;
-        cursor: pointer;
-        touch-action: manipulation;
-      }
-
-      button:disabled { cursor: wait; opacity: 0.7; }
-      button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
-
-      .error-panel {
-        display: grid;
-        gap: 12px;
-        justify-items: center;
-        text-align: center;
-      }
-
-      .error-panel p { margin: 0; font-size: 1.1rem; }
-
-      @media (orientation: landscape) {
-        .booth {
-          gap: 6px;
-          padding-left: max(16px, env(safe-area-inset-left));
-          padding-right: max(16px, env(safe-area-inset-right));
-        }
-        header { text-align: left; }
-        footer { min-height: 60px; }
-        button { min-height: 56px; }
-      }
-    </style>
+    {% include "booth/_theme.html" %}
   </head>
-  <body>
-    <main class="booth" id="booth" data-state="idle"
+  <body class="backdrop{% if background_url %} has-background-image{% endif %}">
+    <main class="stage {{ theme.preview.stage_classes }}" id="booth" data-state="idle"
       data-countdown-seconds="{{ countdown_seconds }}"
       data-idle-timeout-seconds="{{ idle_timeout_seconds }}"
       data-slideshow-enabled="{{ 'true' if slideshow_enabled else 'false' }}"
       data-slideshow-interval-seconds="{{ slideshow_interval_seconds }}"
       data-slideshow-feed-url="{{ url_for('booth.slideshow_photos') }}">
-      <header><h1>{{ booth_name }}</h1></header>
-      <section class="preview" aria-label="Aperçu caméra">
-        <img id="preview" src="{{ url_for('booth.preview') }}" alt="Aperçu caméra en direct">
-        <div class="shade" id="countdown-panel" hidden>
-          <div>
-            <output class="countdown-value" id="countdown-value" aria-live="assertive">3</output>
-            <p class="state-label">Préparez-vous</p>
+      <div class="hero-zone">
+        <section class="hero-frame preview" aria-label="Aperçu caméra">
+          <img id="preview" src="{{ url_for('booth.preview') }}" alt="Aperçu caméra en direct">
+          <div class="countdown" id="countdown-panel" hidden>
+            <div class="countdown-disc">
+              <output class="countdown-value" id="countdown-value" aria-live="assertive">3</output>
+              <p class="countdown-label">Préparez-vous</p>
+            </div>
           </div>
-        </div>
-        <div class="shade" id="error-panel" hidden>
-          <div class="error-panel">
-            <p role="alert">La prise de vue n'a pas pu aboutir.</p>
-            <button id="return-button" type="button">Retour</button>
-          </div>
+        </section>
+      </div>
+      {% if theme.preview.title_visible %}
+      <header class="{{ theme.preview.title_position.css_classes }}"><h1 class="booth-title">{{ booth_name }}</h1></header>
+      {% else %}
+      <h1 class="visually-hidden">{{ booth_name }}</h1>
+      {% endif %}
+      <div class="{{ theme.preview.capture_position.css_classes }}">
+        <button class="shutter" id="capture-button" type="button">Prendre une photo</button>
+        {% if notice %}<p class="notice" id="state-message" role="status">{{ notice }}</p>{% endif %}
+      </div>
+      <section class="overlay" id="error-panel" hidden>
+        <div class="panel overlay-card">
+          <p class="overlay-title" role="alert">La prise de vue n'a pas pu aboutir.</p>
+          <p>Touchez « Retour » pour revenir à l'aperçu et réessayer.</p>
+          <button class="btn btn-primary" id="return-button" type="button">Retour</button>
         </div>
       </section>
       <section class="capturing-panel" id="capturing-panel" aria-label="Prise de vue" hidden>
         <p class="state-label" role="status">Ne bougez plus</p>
       </section>
-      <footer>
-        <button id="capture-button" type="button">Prendre une photo</button>
-        {% if notice %}<p id="state-message" role="status">{{ notice }}</p>{% endif %}
-      </footer>
-      <section class="slideshow" id="slideshow-panel" aria-label="Diaporama" hidden>
+      <section class="slideshow backdrop" id="slideshow-panel" aria-label="Diaporama" hidden>
         <img id="slideshow-image" alt="" hidden>
-        <p role="status">Touchez l'écran pour démarrer</p>
+        <p class="wake-hint" role="status">Touchez l'écran pour démarrer</p>
       </section>
     </main>
     <script>
@@ -366,6 +209,15 @@
         }
       }
 
+      // Presentation only: size the preview frame to the camera's aspect ratio.
+      // The first MJPEG frame may arrive before this script runs, so check now too.
+      function matchPreviewAspect() {
+        if (preview.naturalWidth > 0 && preview.naturalHeight > 0) {
+          booth.style.setProperty("--hero-aspect", (preview.naturalWidth / preview.naturalHeight).toFixed(4));
+        }
+      }
+      preview.addEventListener("load", matchPreviewAspect);
+      matchPreviewAspect();
       captureButton.addEventListener("click", () => { void startCapture(); });
       returnButton.addEventListener("click", () => {
         setState("idle");

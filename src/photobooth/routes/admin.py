@@ -7,11 +7,13 @@ provide transport security when credentials cross an untrusted network.
 """
 
 from dataclasses import replace
+from collections.abc import Mapping
+from enum import Enum
 import hmac
 
 from flask import Blueprint, Response, current_app, redirect, render_template, request, url_for
 from flask.typing import ResponseReturnValue
-from typing import cast
+from typing import TypeVar, cast
 
 from photobooth.config import (
 	ApplicationConfig,
@@ -29,10 +31,72 @@ from photobooth.camera import (
 	validate_camera_setting,
 )
 from photobooth.printing import PrinterBackend
+from photobooth.services.backgrounds import (
+	BackgroundError,
+	BackgroundService,
+	InvalidBackgroundError,
+)
 from photobooth.services.downloads import DownloadService
 from photobooth.services.gallery import GalleryError, GalleryService
+from photobooth.theme import (
+	BackgroundFit,
+	BackgroundPosition,
+	HeroPosition,
+	HeroSize,
+	PreviewFit,
+	ThemeSettings,
+	WidgetAnchor,
+	parse_theme,
+	save_theme,
+	theme_path_for,
+)
 
 admin_blueprint = Blueprint("admin", __name__, url_prefix="/admin")
+
+_EnumT = TypeVar("_EnumT", bound=Enum)
+
+# Display labels only; persisted theme values are the enum values.
+_HERO_POSITION_LABELS = {
+	HeroPosition.LEFT: "Left",
+	HeroPosition.CENTER: "Center",
+	HeroPosition.RIGHT: "Right",
+}
+_HERO_SIZE_LABELS = {
+	HeroSize.SMALL: "Small",
+	HeroSize.MEDIUM: "Medium",
+	HeroSize.LARGE: "Large",
+	HeroSize.FULL: "Full screen",
+}
+_PREVIEW_FIT_LABELS = {
+	PreviewFit.CONTAIN: "Whole camera image",
+	PreviewFit.COVER: "Fill full height (crops image)",
+}
+_ANCHOR_LABELS = {
+	WidgetAnchor.TOP_LEFT: "Top left",
+	WidgetAnchor.TOP_CENTER: "Top center",
+	WidgetAnchor.TOP_RIGHT: "Top right",
+	WidgetAnchor.LEFT: "Middle left",
+	WidgetAnchor.RIGHT: "Middle right",
+	WidgetAnchor.BOTTOM_LEFT: "Bottom left",
+	WidgetAnchor.BOTTOM_CENTER: "Bottom center",
+	WidgetAnchor.BOTTOM_RIGHT: "Bottom right",
+}
+_BACKGROUND_FIT_LABELS = {
+	BackgroundFit.COVER: "Fill screen (crops image)",
+	BackgroundFit.CONTAIN: "Whole image",
+}
+_BACKGROUND_POSITION_LABELS = {
+	BackgroundPosition.CENTER: "Center",
+	BackgroundPosition.TOP: "Top",
+	BackgroundPosition.BOTTOM: "Bottom",
+	BackgroundPosition.LEFT: "Left",
+	BackgroundPosition.RIGHT: "Right",
+	BackgroundPosition.TOP_LEFT: "Top left",
+	BackgroundPosition.TOP_RIGHT: "Top right",
+	BackgroundPosition.BOTTOM_LEFT: "Bottom left",
+	BackgroundPosition.BOTTOM_RIGHT: "Bottom right",
+}
+_THEME_COLOR_NAMES = ("background", "surface", "foreground", "primary", "primary_text")
 
 
 @admin_blueprint.before_request
@@ -164,18 +228,88 @@ def update_settings() -> ResponseReturnValue:
 	return redirect(url_for("admin.administration", saved="1"), code=303)
 
 
+@admin_blueprint.post("/theme")
+def update_theme() -> ResponseReturnValue:
+	"""Validate, persist and immediately apply the event appearance.
+
+	All fields are validated before an optional background upload is stored,
+	so an invalid form never publishes an image. An upload becomes the selected
+	background. The theme file is written atomically; on any failure the
+	previous theme stays active and the form is re-rendered with the input.
+	"""
+	persisted = _persisted_configuration()
+	backgrounds = cast(BackgroundService, current_app.extensions["photobooth.backgrounds"])
+	raw_values = request.form.to_dict(flat=True)
+	try:
+		theme = parse_theme(_theme_document(raw_values))
+		selected_image = theme.background.image
+		if selected_image is not None and not backgrounds.exists(selected_image):
+			raise ConfigurationError("background.image is not an available background")
+	except ConfigurationError as error:
+		return _render_admin(
+			errors={_theme_error_field(str(error)): str(error)},
+			status=400,
+			theme_values=raw_values,
+		)
+
+	upload = request.files.get("theme_background_upload")
+	if upload is not None and upload.filename:
+		try:
+			identifier = backgrounds.store(upload.read())
+		except InvalidBackgroundError:
+			return _render_admin(
+				errors={
+					"theme_background_upload": "The uploaded file is not a supported JPEG, PNG or WebP image."
+				},
+				status=400,
+				theme_values=raw_values,
+			)
+		except BackgroundError:
+			return _render_admin(
+				errors={"theme_form": "The background image could not be stored."},
+				status=500,
+				theme_values=raw_values,
+			)
+		theme = replace(theme, background=replace(theme.background, image=identifier))
+
+	try:
+		save_theme(theme_path_for(persisted.config_path), theme)
+	except OSError:
+		return _render_admin(
+			errors={"theme_form": "Appearance could not be saved. The previous appearance remains active."},
+			status=500,
+			theme_values=raw_values,
+		)
+	current_app.extensions["photobooth.theme"] = theme
+	return redirect(url_for("admin.administration", saved="theme") + "#appearance", code=303)
+
+
 def _render_admin(
 	values: dict[str, str | bool] | None = None,
 	errors: dict[str, str] | None = None,
 	status: int = 200,
 	camera_values: dict[str, str] | None = None,
+	theme_values: dict[str, str] | None = None,
 ) -> ResponseReturnValue:
-	"""Render one admin response without exposing deployment or filesystem data."""
+	"""Render one admin response without exposing deployment or filesystem data.
+
+	``theme_values`` carries a rejected appearance submission back to the form;
+	when omitted, the form shows the currently active theme.
+	"""
 	persisted = _persisted_configuration()
 	effective = _effective_configuration()
 	gallery = cast(GalleryService, current_app.extensions["photobooth.gallery"])
 	printer = cast(PrinterBackend, current_app.extensions["photobooth.printer"])
 	camera = cast(CameraBackend, current_app.extensions["photobooth.camera"])
+	theme = cast(ThemeSettings, current_app.extensions["photobooth.theme"])
+	backgrounds = cast(BackgroundService, current_app.extensions["photobooth.backgrounds"])
+	try:
+		background_choices = [
+			(image.identifier, f"Uploaded {image.uploaded_at:%Y-%m-%d %H:%M} UTC")
+			for image in backgrounds.list_backgrounds()
+		]
+	except BackgroundError:
+		background_choices = []
 	camera_capabilities = camera.get_capabilities()
 	persisted_camera_settings = persisted.startup.camera_settings
 	camera_controls = tuple(
@@ -214,8 +348,93 @@ def _render_admin(
 		camera_values=camera_values or {},
 		photo_count=photo_count,
 		printer_name=type(printer).__name__,
+		theme_saved=request.args.get("saved") == "theme",
+		theme_values=theme_values if theme_values is not None else _theme_form_values(theme),
+		background_choices=background_choices,
+		theme_options={
+			"hero_position": _options(_HERO_POSITION_LABELS),
+			"hero_size": _options(_HERO_SIZE_LABELS),
+			"preview_fit": _options(_PREVIEW_FIT_LABELS),
+			"anchor": _options(_ANCHOR_LABELS),
+			"background_fit": _options(_BACKGROUND_FIT_LABELS),
+			"background_position": _options(_BACKGROUND_POSITION_LABELS),
+		},
 	)
 	return rendered if status == 200 else (rendered, status)
+
+
+def _options(labels: Mapping[_EnumT, str]) -> list[tuple[str, str]]:
+	"""Return ``(persisted value, display label)`` pairs for a select control."""
+	return [(str(member.value), label) for member, label in labels.items()]
+
+
+def _theme_form_values(theme: ThemeSettings) -> dict[str, str]:
+	"""Flatten the active theme into the appearance form's field values."""
+	colors = theme.colors
+	preview = theme.preview
+	review = theme.review
+	return {
+		"theme_colors_background": colors.background,
+		"theme_colors_surface": colors.surface,
+		"theme_colors_foreground": colors.foreground,
+		"theme_colors_primary": colors.primary,
+		"theme_colors_primary_text": colors.primary_text,
+		"theme_background_image": theme.background.image or "",
+		"theme_background_fit": theme.background.fit.value,
+		"theme_background_position": theme.background.position.value,
+		"theme_preview_position": preview.position.value,
+		"theme_preview_size": preview.size.value,
+		"theme_preview_fit": preview.fit.value,
+		"theme_preview_capture_position": preview.capture_position.value,
+		"theme_preview_title_visible": "true" if preview.title_visible else "false",
+		"theme_preview_title_position": preview.title_position.value,
+		"theme_review_photo_position": review.photo_position.value,
+		"theme_review_photo_size": review.photo_size.value,
+		"theme_review_qr_position": review.qr_position.value,
+		"theme_review_actions_position": review.actions_position.value,
+	}
+
+
+def _theme_document(raw_values: dict[str, str]) -> dict[str, object]:
+	"""Rebuild the ``theme.json`` structure from flat form fields.
+
+	Missing fields become empty strings so validation reports them by name
+	instead of silently keeping a previous value.
+	"""
+
+	def value(name: str) -> str:
+		"""Return one submitted theme field or an empty string."""
+		return raw_values.get(f"theme_{name}", "")
+
+	return {
+		"colors": {name: value(f"colors_{name}") for name in _THEME_COLOR_NAMES},
+		"background": {
+			"image": value("background_image") or None,
+			"fit": value("background_fit"),
+			"position": value("background_position"),
+		},
+		"preview": {
+			"position": value("preview_position"),
+			"size": value("preview_size"),
+			"fit": value("preview_fit"),
+			"capture_position": value("preview_capture_position"),
+			"title_visible": value("preview_title_visible") == "true",
+			"title_position": value("preview_title_position"),
+		},
+		"review": {
+			"photo_position": value("review_photo_position"),
+			"photo_size": value("review_photo_size"),
+			"qr_position": value("review_qr_position"),
+			"actions_position": value("review_actions_position"),
+		},
+	}
+
+
+def _theme_error_field(message: str) -> str:
+	"""Map a dotted theme validation path such as ``colors.primary`` to its field."""
+	path = message.split(maxsplit=1)[0] if message else ""
+	field = "theme_" + path.replace(".", "_")
+	return field if field in _theme_form_values(ThemeSettings()) else "theme_form"
 
 
 def _persisted_configuration() -> ApplicationConfig:
