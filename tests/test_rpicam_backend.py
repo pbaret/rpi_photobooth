@@ -7,6 +7,8 @@ without real sleeps.
 """
 
 import io
+import logging
+import shlex
 from collections import deque
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -27,6 +29,7 @@ from photobooth.camera.rpicam import (
     build_preview_command,
     build_still_command,
 )
+from photobooth.camera.rpicam_settings import WhiteBalanceMode
 from photobooth.camera.settings import validate_camera_setting
 
 VID_PATH = "/usr/bin/rpicam-vid"
@@ -399,15 +402,45 @@ def test_default_settings_build_documented_commands() -> None:
     assert still == (
         STILL_PATH,
         "--nopreview",
-        "--immediate",
         "-t",
         "1",
         "--encoding",
         "jpg",
         "--quality",
-        "93",
+        "95",
+        "--width",
+        "4608",
+        "--height",
+        "2592",
         "--awb",
         "auto",
+        "--metering",
+        "centre",
+        "--exposure",
+        "normal",
+        "--ev",
+        "0.3",
+        "--brightness",
+        "0",
+        "--contrast",
+        "1",
+        "--saturation",
+        "1",
+        "--sharpness",
+        "1.1",
+        "--denoise",
+        "cdn_hq",
+        "--hdr=off",
+        "--autofocus-mode",
+        "auto",
+        "--autofocus-range",
+        "normal",
+        "--autofocus-speed",
+        "fast",
+        "--autofocus-window",
+        "0.2,0.15,0.6,0.7",
+        "--autofocus-on-capture",
+        "--verbose=2",
         "-o",
         "/tmp/out.jpg",
     )
@@ -453,3 +486,133 @@ def test_unknown_persisted_settings_are_ignored() -> None:
     backend.configure_settings({"shell_command": "rm -rf /"})
 
     assert all(item.identifier != "shell_command" for item in backend.get_capabilities())
+
+
+def test_still_command_is_logged_readably_and_runner_receives_argument_tuple(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    runner = FakeRunner()
+    backend = make_backend(runner)
+    backend.start()
+
+    with caplog.at_level(logging.INFO, logger="photobooth.camera.rpicam"):
+        backend.capture(tmp_path / "photo.jpg")
+
+    executed = runner.run_args[0]
+    assert isinstance(executed, tuple)
+    assert executed[0] == STILL_PATH
+    assert f"Running rpicam-still: {shlex.join(executed)}" in caplog.messages
+    assert shlex.split(shlex.join(executed)) == list(executed)
+
+
+def test_last_still_command_diagnostic_reports_arguments_and_exit_status(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    backend = make_backend(runner)
+
+    def last_command() -> str | None:
+        """Return the read-only diagnostic's reported value."""
+        capability = next(
+            item for item in backend.get_capabilities() if item.identifier == "last_still_command"
+        )
+        value = capability.effective_value
+        return value if isinstance(value, str) else None
+
+    assert last_command() is None
+    backend.start()
+    backend.capture(tmp_path / "photo.jpg")
+
+    reported = last_command()
+    assert reported is not None
+    assert reported.startswith(f"{STILL_PATH} --nopreview")
+    assert "<temporary-output>" in reported
+    assert str(tmp_path) not in reported
+    assert reported.endswith("(exit 0)")
+
+    runner.run_handler = write_jpeg_still(returncode=255)
+    backend.start()
+    with pytest.raises(CameraOperationError):
+        backend.capture(tmp_path / "photo2.jpg")
+    assert str(last_command()).endswith("(exit 255)")
+
+
+def test_failed_still_logs_bounded_stderr_tail(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    runner = FakeRunner()
+
+    def failing(args: tuple[str, ...], timeout: float) -> FiniteCommandResult:
+        """Report a failure with a diagnostic stderr tail."""
+        return FiniteCommandResult(returncode=1, stderr_tail="ERROR: no cameras available")
+
+    runner.run_handler = failing
+    backend = make_backend(runner)
+    backend.start()
+
+    with pytest.raises(CameraOperationError):
+        backend.capture(tmp_path / "photo.jpg")
+
+    assert any("no cameras available" in message for message in caplog.messages)
+
+
+def test_inconsistent_window_never_reaches_rpicam_and_releases_backend(tmp_path: Path) -> None:
+    """A transient invalid window from piecemeal runtime updates fails capture safely."""
+    runner = FakeRunner()
+    backend = make_backend(runner)
+    capabilities = {item.identifier: item for item in backend.get_capabilities()}
+    backend.apply_setting(validate_camera_setting(capabilities["autofocus_window_x"], 0.9))
+    backend.start()
+
+    with pytest.raises(CameraOperationError):
+        backend.capture(tmp_path / "photo.jpg")
+
+    assert runner.run_args == []
+    assert list(tmp_path.iterdir()) == []
+    with pytest.raises(CameraUnavailableError):
+        backend.preview_frame()
+
+
+def test_configure_settings_is_atomic_for_cross_field_errors() -> None:
+    backend = make_backend(FakeRunner())
+
+    with pytest.raises(ValueError):
+        backend.configure_settings({"jpeg_quality": 80, "autofocus_window_x": 0.9})
+
+    requested = {item.identifier: item.requested_value for item in backend.get_capabilities()}
+    assert requested["jpeg_quality"] == 95
+    assert requested["autofocus_window_x"] == 0.2
+
+
+def test_validate_settings_checks_the_complete_set_without_storing() -> None:
+    backend = make_backend(FakeRunner())
+
+    backend.validate_settings({"autofocus_window_x": 0.5, "autofocus_window_width": 0.4})
+    with pytest.raises(ValueError, match="^autofocus_window_width"):
+        backend.validate_settings({"autofocus_window_x": 0.5})
+
+    requested = {item.identifier: item.requested_value for item in backend.get_capabilities()}
+    assert requested["autofocus_window_x"] == 0.2
+
+
+def test_older_configuration_loads_with_documented_defaults(tmp_path: Path) -> None:
+    """Configurations written before still-capture tuning only knew three keys."""
+    runner = FakeRunner()
+    backend = make_backend(runner)
+
+    backend.configure_settings(
+        {"preview_size": "640x480", "jpeg_quality": 90, "white_balance": "indoor"}
+    )
+    backend.start()
+    backend.capture(tmp_path / "photo.jpg")
+
+    expected = build_still_command(
+        STILL_PATH,
+        RpicamSettings(
+            preview_size="640x480",
+            jpeg_quality=90,
+            white_balance=WhiteBalanceMode.INDOOR,
+        ),
+        Path("unused"),
+    )
+    assert runner.run_args[0][:-1] == expected[:-1]

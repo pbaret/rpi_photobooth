@@ -448,8 +448,15 @@ as status and cannot be submitted as changes. The app does not restart a
 camera implicitly: a restart-required request is persisted as requested,
 while the effective value remains the backend's previous readback or unknown
 until the backend applies it. OpenCV currently declares preview width, preview
-height, and software preview mirroring. Synthetic declarations are test
+height, and software preview mirroring. Rpicam declares the preview size and
+the still-capture controls in section 17a. Synthetic declarations are test
 controls, not physical camera capabilities.
+
+Capabilities may carry presentation metadata: a group heading, a unit, a
+capture-only flag (the control affects stills but not preview), and an
+"active when" condition naming the controlling setting. Backends also check
+the complete requested set before it is saved, so rules spanning several
+settings are rejected without persisting anything.
 
 ---
 
@@ -535,6 +542,170 @@ If executable paths become configurable, they are infrastructure settings, not
 regular admin camera controls.
 
 The backend must diagnose missing executables with a clear domain error.
+
+---
+
+## 17a. Rpicam still-capture settings
+
+`RpicamCameraBackend` declares the following controls under Admin > Camera.
+They are persisted as scalar values in `startup.camera_settings`, keyed by the
+identifier below. Raw command-line fragments are never stored. Every value is
+validated against the bounds below and then mapped to one fixed `rpicam-still`
+argument. Options were confirmed against `rpicam-still --help` from
+rpicam-apps v1.14.0 (libcamera v0.7.2) on a Raspberry Pi 5 with Camera
+Module 3 Wide.
+
+Existing configuration files without these keys keep loading: each missing
+key takes the default listed here. Only `jpeg_quality` existed before and its
+default changed from `93` to `95`; files that saved it explicitly keep their
+value.
+
+Bounds are application bounds, narrower than what rpicam's parser accepts
+(it accepts any float for most rendering values). They were chosen for a
+photobooth and are documented, not derived from a hardware query.
+
+| Identifier | Type | Unit | Default | Allowed values / bounds | Emitted argument |
+|---|---|---|---|---|---|
+| `still_width` | integer | px | `4608` | 320–4608, step 2 | `--width N` |
+| `still_height` | integer | px | `2592` | 240–2592, step 2 | `--height N` |
+| `jpeg_quality` | integer | — | `95` | 50–100 | `--quality N` |
+| `denoise` | enum | — | `cdn_hq` | `auto`, `off`, `cdn_off`, `cdn_fast`, `cdn_hq` | `--denoise V` |
+| `hdr` | enum | — | `off` | `off`, `auto`, `sensor`, `single-exp` | `--hdr=V` |
+| `exposure_control` | enum | — | `auto` | `auto`, `manual` | none (selects shutter/gain emission) |
+| `shutter_us` | integer | µs | `16667` | 100–1 000 000 | `--shutter N` (manual exposure only) |
+| `gain` | float | × | `4.0` | 1.0–16.0, step 0.1 | `--gain G` (manual exposure only) |
+| `metering` | enum | — | `centre` | `centre`, `spot`, `average` | `--metering V` |
+| `exposure_mode` | enum | — | `normal` | `normal`, `sport` | `--exposure V` |
+| `ev` | float | EV | `0.3` | −2.0–2.0, step 0.1 | `--ev E` |
+| `white_balance` | enum | — | `auto` | `auto`, `incandescent`, `tungsten`, `fluorescent`, `indoor`, `daylight`, `cloudy` | `--awb V` (also on preview) |
+| `brightness` | float | — | `0.0` | −1.0–1.0, step 0.05 | `--brightness B` |
+| `contrast` | float | — | `1.0` | 0.5–2.0, step 0.05 | `--contrast C` |
+| `saturation` | float | — | `1.0` | 0.0–2.0, step 0.05 | `--saturation S` |
+| `sharpness` | float | — | `1.1` | 0.1–2.0, step 0.05 | `--sharpness S` |
+| `autofocus_mode` | enum | — | `auto` | `auto`, `continuous`, `manual` | `--autofocus-mode V` |
+| `autofocus_range` | enum | — | `normal` | `normal`, `macro`, `full` | `--autofocus-range V` (auto/continuous only) |
+| `autofocus_speed` | enum | — | `fast` | `normal`, `fast` | `--autofocus-speed V` (auto/continuous only) |
+| `autofocus_on_capture` | boolean | — | `true` | `true`, `false` | `--autofocus-on-capture` (auto/continuous only) |
+| `autofocus_window_x` | float | fraction | `0.2` | 0.0–1.0, step 0.01 | `--autofocus-window x,y,w,h` (auto/continuous only) |
+| `autofocus_window_y` | float | fraction | `0.15` | 0.0–1.0, step 0.01 | as above |
+| `autofocus_window_width` | float | fraction | `0.6` | 0.01–1.0, step 0.01; `x + width <= 1` | as above |
+| `autofocus_window_height` | float | fraction | `0.7` | 0.01–1.0, step 0.01; `y + height <= 1` | as above |
+| `lens_position` | float | dioptres | `1.0` (unused) | 0.0–15.0, step 0.05 | `--lens-position P` (manual focus only) |
+| `verbosity` | integer | — | `2` | 0–2 | `--verbose=N` |
+| `last_still_command` | string | — | — | read-only diagnostic | none |
+
+`preview_size` (`640x480`, `1280x720`, `1920x1080`; default `1280x720`) is the
+only preview control and requires a camera restart. All other controls except
+`white_balance` affect only the next still and are marked as such in
+administration.
+
+There is a single `gain` setting emitted as `--gain`. rpicam's `--analoggain`
+is a synonym and is intentionally not exposed.
+
+### Default low-light portrait profile
+
+The defaults target subjects 1–2 m from Camera Module 3 in indoor or
+relatively low light, with the smartphone's white CAPTURING screen giving only
+limited fill light (it is not a flash). This profile is **provisional**: it
+is a starting point, not a measured optimum. Final values need on-site tuning
+for room illumination, subject movement, camera position, event background,
+the Camera Module 3 standard or wide variant, visible noise, motion blur and
+white-balance consistency.
+
+The default still command is:
+
+    rpicam-still --nopreview -t 1 --encoding jpg --quality 95 --width 4608
+      --height 2592 --awb auto --metering centre --exposure normal --ev 0.3
+      --brightness 0 --contrast 1 --saturation 1 --sharpness 1.1
+      --denoise cdn_hq --hdr=off --autofocus-mode auto --autofocus-range normal
+      --autofocus-speed fast --autofocus-window 0.2,0.15,0.6,0.7
+      --autofocus-on-capture --verbose=2 -o <temporary output>
+
+### Automatic versus manual exposure
+
+With `exposure_control = auto` (default) neither `--shutter` nor `--gain` is
+emitted; automatic exposure chooses both, guided by `metering`,
+`exposure_mode` and `ev`. Zero is never passed as a stand-in for "automatic".
+
+With `exposure_control = manual` the stored `shutter_us` and `gain` are
+emitted. Fixed values can cause underexposure, overexposure, noise or motion
+blur when the lighting changes. `metering`, `exposure_mode` and `ev` are still
+emitted but have little or no effect once both shutter and gain are fixed.
+
+Shutter and gain stay automatic by default because event lighting is
+unpredictable. The trade-off is direct: in low light, automatic exposure
+tends to lengthen the shutter (about 60 ms was observed in a dim room), which
+blurs moving people; a shorter fixed shutter (for example 16 667 µs) freezes
+motion but needs more gain, which adds noise. `exposure_mode = sport` asks
+automatic exposure to prefer shorter shutter times.
+
+Inactive values are kept: switching to automatic exposure does not erase the
+saved shutter and gain, it only stops emitting them.
+
+### Autofocus interactions
+
+- `auto`: range, speed and window are emitted. With
+  `autofocus_on_capture = true`, rpicam scans just before the still. The lens
+  position is never emitted.
+- `continuous`: range, speed and window are emitted and the lens position is
+  never emitted. Because the still is taken almost immediately, continuous AF
+  has no time to converge on its own; on rpicam-apps 1.14,
+  `--autofocus-on-capture` remains valid and switches to a triggered scan,
+  so it is still emitted when enabled.
+- `manual`: only `--lens-position` is emitted. Range, speed, window and
+  autofocus-on-capture are ignored (not emitted) even if stored.
+
+`lens_position` is a reciprocal distance in dioptres: `0` is infinity, `1.0`
+is 1 m, `0.5` is 2 m. It is effectively unset unless the mode is `manual`.
+
+`--immediate` skips rpicam-still's viewfinder phase, and rpicam-apps 1.14 runs
+the autofocus-on-capture scan only in that phase. The backend therefore omits
+`--immediate` whenever `--autofocus-on-capture` is emitted. On the test Pi
+this added about 0.45 s of capture latency (≈0.7 s → ≈1.2 s); with
+`--immediate` the lens did not move.
+
+Administration hides controls that the selected mode ignores. This is a
+convenience only; the server validates every submission and the command
+builder decides what to emit.
+
+### Autofocus window coordinates
+
+The window is a normalized rectangle with origin at the image's top-left
+corner: `x` and `y` are the left and top edges as fractions of the image
+width and height, `width` and `height` extend right and down. It must satisfy
+`0 <= x <= 1`, `0 <= y <= 1`, `0 < width <= 1`, `0 < height <= 1`,
+`x + width <= 1` and `y + height <= 1`. The default `0.2,0.15,0.6,0.7` covers
+the central area where faces usually are. Out-of-frame rectangles are
+rejected before saving; the backend also refuses to build a command with one.
+
+### HDR limitations
+
+All four values are accepted by rpicam-apps 1.14, but acceptance is not proof
+of support. On the test Camera Module 3 Wide, only `single-exp` (PiSP
+multi-frame HDR on Raspberry Pi 5) reported an HDR mode in capture metadata
+and changed exposure; `auto` and `sensor` exited successfully with no
+observable HDR effect. HDR can add capture latency, cause ghosting on moving
+subjects, change exposure behavior and depends on the sensor and ISP. The
+photobooth default is `off`.
+
+### Requested versus effective values
+
+Administration shows the requested value; for rpicam controls the effective
+value is "Not reported". The backend can confirm the argument it emitted and
+whether `rpicam-still` exited successfully, which the read-only
+`last_still_command` diagnostic shows (with the temporary output path replaced
+by `<temporary-output>`). A successful exit does not prove that brightness,
+autofocus, gain or HDR had the intended photographic effect.
+
+### Command logging
+
+Immediately before each still, the backend logs the full argument list at
+INFO level on the `photobooth.camera.rpicam` logger using `shlex.join`. The
+logged string is for reading only; the subprocess still receives the original
+argument list with `shell=False`. Logged values are validated settings and an
+application-controlled temporary path; no secret or download token is
+included. `--verbose=2` makes rpicam chatty, but only a bounded stderr tail is
+kept, and it is logged only when the command fails.
 
 ---
 

@@ -25,6 +25,24 @@ class CameraSettingType(str, Enum):
 
 
 @dataclass(frozen=True)
+class CameraSettingCondition:
+    """State that a control is only meaningful while another control has given values.
+
+    Conditions are presentation and documentation metadata: the admin page
+    uses them to hide or disable irrelevant inputs, while the owning backend
+    remains responsible for ignoring inactive values when it builds commands.
+    """
+
+    identifier: str
+    values: tuple[CameraSettingValue, ...]
+
+    def __post_init__(self) -> None:
+        """Reject conditions that could never be satisfied."""
+        if not self.identifier or not self.values:
+            raise ValueError("camera setting conditions need an identifier and values")
+
+
+@dataclass(frozen=True)
 class CameraSettingCapability:
     """Describe one control the owning backend explicitly supports.
 
@@ -33,6 +51,10 @@ class CameraSettingCapability:
     backend. A missing effective value means the backend cannot currently
     report it. Read-only controls cannot be submitted, and restart-required
     controls are persisted without being applied to the active backend.
+
+    ``group`` and ``unit`` only affect presentation. ``capture_only`` marks a
+    control that influences still capture but not preview. ``active_when``
+    names the controlling setting whose value makes this control relevant.
     """
 
     identifier: str
@@ -48,6 +70,10 @@ class CameraSettingCapability:
     read_only: bool = False
     restart_required: bool = False
     description: str = ""
+    group: str = ""
+    unit: str = ""
+    capture_only: bool = False
+    active_when: CameraSettingCondition | None = None
 
     def __post_init__(self) -> None:
         """Reject malformed declarations before they reach application code."""

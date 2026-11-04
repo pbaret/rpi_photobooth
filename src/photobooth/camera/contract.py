@@ -56,6 +56,19 @@ class CameraBackend(Protocol):
         """
         ...
 
+    def validate_settings(
+        self, settings: Mapping[str, CameraSettingValue]
+    ) -> None:
+        """Check a complete set of requested settings without changing the backend.
+
+        ``settings`` is the full requested mapping as it would be persisted;
+        unknown identifiers are ignored and omitted known settings take their
+        defaults. Beyond per-setting validation, backends enforce rules that
+        span several settings. Raises ``ValueError`` whose message starts with
+        the offending setting identifier.
+        """
+        ...
+
     def apply_setting(self, setting: ValidatedCameraSetting) -> CameraSettingValue:
         """Apply one validated setting when doing so is safe without restart.
 

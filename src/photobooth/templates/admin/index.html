@@ -34,6 +34,7 @@
       .camera-meta { margin: 0; color: #aeb7ad; font-size: .9rem; }
       .camera-control { padding-top: 12px; border-top: 1px solid #343b35; }
       .camera-control:first-child { padding-top: 0; border-top: 0; }
+      .camera-group h3 { margin: 18px 0 12px; font-size: 1rem; color: #f1c84b; }
       .readonly-value { min-height: 46px; display: flex; align-items: center; color: #fff; }
       .diagnostics { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 10px 20px; margin: 0; }
       .diagnostics dt { color: #aeb7ad; }
@@ -136,13 +137,19 @@
           {% if errors.get('camera') %}<p class="error" role="alert">{{ errors.get('camera') }}</p>{% endif %}
           {% if camera_capabilities %}
           <input type="hidden" name="camera_settings_present" value="true">
-          <div class="fields" aria-label="Active camera controls">
+          <div aria-label="Active camera controls">
             {% for capability in camera_capabilities %}
+            {% if loop.first or capability.group != loop.previtem.group %}
+            {% if not loop.first %}</div></section>{% endif %}
+            <section class="camera-group">
+            <h3>{{ capability.group or 'Camera controls' }}</h3>
+            <div class="fields">
+            {% endif %}
             {% set setting_name = 'camera_setting_' ~ capability.identifier %}
             {% set requested = 'Not applicable' if capability.read_only else (capability.requested_value if capability.requested_value is not none else capability.default_value) %}
             {% set form_value = camera_values.get(capability.identifier, requested|string) %}
-            <div class="camera-control">
-              <label for="{{ setting_name }}">{{ capability.label }}
+            <div class="camera-control"{% if capability.active_when %} data-active-when="{{ capability.active_when.identifier }}" data-active-values='{{ capability.active_when.values|tojson }}'{% endif %}>
+              <label for="{{ setting_name }}">{{ capability.label }}{% if capability.unit %} ({{ capability.unit }}){% endif %}
                 {% if capability.read_only %}
                   <output id="{{ setting_name }}" class="readonly-value">{{ capability.effective_value if capability.effective_value is not none else 'Not reported' }}</output>
                 {% elif capability.value_type.value == 'boolean' %}
@@ -162,8 +169,11 @@
               <p class="camera-meta">{{ capability.description }}</p>
               <p class="camera-meta">Requested: {{ requested }}. Effective: {{ capability.effective_value if capability.effective_value is not none else 'Not reported' }}.</p>
               {% if capability.restart_required %}<p class="camera-meta">Changing this setting requires a camera restart.</p>{% endif %}
+              {% if capability.capture_only %}<p class="camera-meta">Applies to the next still capture only; preview is unaffected.</p>{% endif %}
+              {% if capability.active_when %}<p class="camera-meta">Used only when {{ capability.active_when.identifier }} is {{ capability.active_when.values|join(' or ') }}.</p>{% endif %}
               {% if errors.get(setting_name) %}<span class="error" role="alert">{{ errors.get(setting_name) }}</span>{% endif %}
             </div>
+            {% if loop.last %}</div></section>{% endif %}
             {% endfor %}
           </div>
           {% else %}
@@ -279,6 +289,26 @@
       </form>
     </main>
     <script>
+      // Hide camera controls that the selected mode ignores. Hidden number and
+      // select inputs are disabled so they are not submitted and the saved
+      // value is kept; checkboxes stay enabled so their saved state is
+      // resubmitted unchanged. The server still validates every submission
+      // and never emits inactive settings.
+      for (const control of document.querySelectorAll("[data-active-when]")) {
+        const source = document.getElementById("camera_setting_" + control.dataset.activeWhen);
+        if (!source) continue;
+        const values = JSON.parse(control.dataset.activeValues);
+        const update = () => {
+          const active = values.includes(source.value);
+          control.hidden = !active;
+          for (const input of control.querySelectorAll("input, select")) {
+            if (input.type !== "checkbox") input.disabled = !active;
+          }
+        };
+        source.addEventListener("change", update);
+        update();
+      }
+
       // Live color sample only; the booth itself is the source of truth.
       const sample = document.getElementById("theme-sample");
       const sampleProperties = {

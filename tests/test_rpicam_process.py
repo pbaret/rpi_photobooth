@@ -5,6 +5,7 @@ machine without rpicam, while still covering argument-list execution, exit
 status reporting, timeout killing and launch failures.
 """
 
+import subprocess
 import sys
 
 import pytest
@@ -46,3 +47,35 @@ def test_find_executable_returns_none_for_missing_name() -> None:
     runner = SubprocessCameraProcessRunner()
 
     assert runner.find_executable("photobooth-definitely-not-installed") is None
+
+
+def test_run_passes_an_argument_list_without_a_shell(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A command containing shell metacharacters reaches Popen verbatim, never via a shell."""
+    observed: list[tuple[list[str], bool]] = []
+    real_popen = subprocess.Popen
+
+    def recording_popen(
+        args: list[str], *, stdin: int, stdout: int, stderr: int, shell: bool, close_fds: bool
+    ) -> "subprocess.Popen[bytes]":
+        """Record the argument object and shell flag, then start the real process."""
+        observed.append((args, shell))
+        return real_popen(
+            args, stdin=stdin, stdout=stdout, stderr=stderr, shell=shell, close_fds=close_fds
+        )
+
+    monkeypatch.setattr(subprocess, "Popen", recording_popen)
+    command = (sys.executable, "-c", "pass", "; echo injected")
+
+    SubprocessCameraProcessRunner().run(command, timeout=10.0)
+
+    assert observed == [(list(command), False)]
+
+
+def test_verbose_stderr_is_bounded_to_the_newest_tail() -> None:
+    """rpicam --verbose=2 output cannot grow the retained diagnostics without limit."""
+    script = "import sys; sys.stderr.write('x' * 50000 + 'END'); sys.exit(1)"
+
+    result = SubprocessCameraProcessRunner().run((sys.executable, "-c", script), timeout=10.0)
+
+    assert result.stderr_tail.endswith("END")
+    assert len(result.stderr_tail) <= 4096

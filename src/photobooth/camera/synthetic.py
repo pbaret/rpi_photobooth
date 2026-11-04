@@ -62,6 +62,24 @@ class SyntheticCameraBackend:
                 validated = validate_camera_setting(capability, value)
                 self._store_setting_locked(validated)
 
+    def validate_settings(
+        self, settings: Mapping[str, CameraSettingValue]
+    ) -> None:
+        """Validate known requests individually; synthetic controls have no cross-rules.
+
+        Raises ``ValueError`` for read-only or invalid known settings without
+        changing the backend.
+        """
+        with self._lock:
+            capabilities = {item.identifier: item for item in self._capabilities_locked()}
+        for identifier, value in settings.items():
+            capability = capabilities.get(identifier)
+            if capability is None:
+                continue
+            if capability.read_only:
+                raise ValueError(f"{identifier} is read-only")
+            validate_camera_setting(capability, value)
+
     def apply_setting(self, setting: ValidatedCameraSetting) -> CameraSettingValue:
         """Apply a writable live synthetic control and return its effective value."""
         with self._lock:

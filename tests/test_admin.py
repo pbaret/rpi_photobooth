@@ -1,6 +1,7 @@
 """Behavioral tests for protected runtime administration."""
 
 import base64
+from collections.abc import Sequence
 import json
 from pathlib import Path
 from typing import cast
@@ -9,7 +10,8 @@ from flask import Flask
 import pytest
 
 from photobooth.app import create_app
-from photobooth.camera import OpenCVCameraBackend
+from photobooth.camera import OpenCVCameraBackend, RpicamCameraBackend
+from photobooth.camera.process import FiniteCommandResult, LongRunningProcess
 from photobooth.config import (
     ApplicationConfig,
     BoothSettings,
@@ -387,3 +389,187 @@ def _close_preview(app: Flask) -> None:
     """Release the application-owned preview service after the test."""
     preview = cast(PreviewService, app.extensions["photobooth.preview"])
     preview.close()
+
+class _NoProcessRunner:
+    """Process boundary for admin tests that must never launch rpicam."""
+
+    def find_executable(self, name: str) -> str | None:
+        """Report every executable as missing; admin rendering must not need one."""
+        return None
+
+    def start(self, args: Sequence[str]) -> LongRunningProcess:
+        """Fail loudly because admin requests must not start preview."""
+        raise AssertionError(f"unexpected process start: {args[0]}")
+
+    def run(self, args: Sequence[str], timeout: float) -> FiniteCommandResult:
+        """Fail loudly because admin requests must not capture."""
+        raise AssertionError(f"unexpected process run: {args[0]}")
+
+
+def _rpicam_app(tmp_path: Path) -> Flask:
+    """Build an app whose active backend is rpicam behind a non-launching runner."""
+    configuration = ApplicationConfig(
+        startup=StartupConfig(
+            data_root=tmp_path / "data",
+            admin_secret="deployment-secret",
+            camera_backend=CameraBackendKind.RPICAM,
+        ),
+        booth=BoothSettings(),
+        config_path=tmp_path / "config.json",
+    )
+    return create_app(
+        configuration=configuration,
+        camera_backend=RpicamCameraBackend(_NoProcessRunner()),
+    )
+
+
+def _rpicam_form(**overrides: str) -> dict[str, str]:
+    """Return a valid rpicam admin submission with the boolean control checked."""
+    return _form(
+        camera_backend="rpicam",
+        camera_settings_present="true",
+        camera_setting_autofocus_on_capture="true",
+        **overrides,
+    )
+
+
+def test_rpicam_still_controls_render_grouped_with_units_and_metadata(tmp_path: Path) -> None:
+    app = _rpicam_app(tmp_path)
+    page = app.test_client().get("/admin", headers=_auth_header("deployment-secret"))
+    html = page.get_data(as_text=True)
+
+    assert page.status_code == 200
+    for heading in ("Image", "Exposure", "White balance and rendering", "Autofocus", "Diagnostics"):
+        assert f"<h3>{heading}</h3>" in html
+    assert 'name="camera_setting_shutter_us" type="number"' in html
+    assert "Shutter duration (µs)" in html
+    assert 'name="camera_setting_autofocus_on_capture" type="checkbox"' in html
+    assert '<select id="camera_setting_hdr" name="camera_setting_hdr">' in html
+    assert 'data-active-when="exposure_control"' in html
+    assert 'data-active-when="autofocus_mode"' in html
+    assert "Applies to the next still capture only" in html
+    assert "Changing this setting requires a camera restart." in html
+    assert 'id="camera_setting_last_still_command" class="readonly-value"' in html
+    assert "camera_setting_analoggain" not in html
+    _close_preview(app)
+
+
+def test_non_rpicam_backends_do_not_show_still_tuning_controls(tmp_path: Path) -> None:
+    app = _app(tmp_path)
+    html = app.test_client().get("/admin", headers=_auth_header("deployment-secret")).get_data(
+        as_text=True
+    )
+
+    assert "camera_setting_shutter_us" not in html
+    assert "camera_setting_autofocus_mode" not in html
+    _close_preview(app)
+
+
+def test_valid_rpicam_values_persist_and_reach_the_backend(tmp_path: Path) -> None:
+    app = _rpicam_app(tmp_path)
+    client = app.test_client()
+
+    response = client.post(
+        "/admin/settings",
+        data=_rpicam_form(
+            camera_setting_exposure_control="manual",
+            camera_setting_shutter_us="33333",
+            camera_setting_gain="2.5",
+            camera_setting_autofocus_mode="manual",
+            camera_setting_lens_position="0.7",
+            camera_setting_autofocus_window_x="0.5",
+            camera_setting_autofocus_window_width="0.4",
+            camera_setting_hdr="single-exp",
+        ),
+        headers=_auth_header("deployment-secret"),
+    )
+
+    assert response.status_code == 303
+    stored = json.loads((tmp_path / "config.json").read_text())["startup"]["camera_settings"]
+    assert stored["exposure_control"] == "manual"
+    assert stored["shutter_us"] == 33333
+    assert stored["gain"] == 2.5
+    assert stored["lens_position"] == 0.7
+    assert stored["autofocus_window_x"] == 0.5
+    assert stored["hdr"] == "single-exp"
+    assert all(not str(value).startswith("--") for value in stored.values())
+    camera = cast(RpicamCameraBackend, app.extensions["photobooth.camera"])
+    requested = {item.identifier: item.requested_value for item in camera.get_capabilities()}
+    assert requested["shutter_us"] == 33333
+    assert requested["autofocus_mode"] == "manual"
+    _close_preview(app)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "field"),
+    [
+        ({"camera_setting_still_width": "0"}, "still_width"),
+        ({"camera_setting_jpeg_quality": "120"}, "jpeg_quality"),
+        ({"camera_setting_brightness": "2"}, "brightness"),
+        ({"camera_setting_gain": "0"}, "gain"),
+        ({"camera_setting_shutter_us": "-1"}, "shutter_us"),
+        ({"camera_setting_hdr": "always"}, "hdr"),
+        ({"camera_setting_metering": "centre --shutter 1"}, "metering"),
+        ({"camera_setting_autofocus_window_x": "0.9"}, "autofocus_window_width"),
+        ({"camera_setting_last_still_command": "x"}, "last_still_command"),
+    ],
+)
+def test_invalid_rpicam_values_do_not_persist(
+    tmp_path: Path, overrides: dict[str, str], field: str
+) -> None:
+    app = _rpicam_app(tmp_path)
+
+    response = app.test_client().post(
+        "/admin/settings",
+        data=_rpicam_form(**overrides),
+        headers=_auth_header("deployment-secret"),
+    )
+
+    assert response.status_code == 400
+    assert field.encode() in response.data
+    assert not (tmp_path / "config.json").exists()
+    camera = cast(RpicamCameraBackend, app.extensions["photobooth.camera"])
+    requested = {item.identifier: item.requested_value for item in camera.get_capabilities()}
+    assert requested["autofocus_window_x"] == 0.2
+    _close_preview(app)
+
+
+def test_undeclared_rpicam_argument_names_are_rejected(tmp_path: Path) -> None:
+    """Only declared settings can be submitted; there is no analoggain alias."""
+    app = _rpicam_app(tmp_path)
+
+    response = app.test_client().post(
+        "/admin/settings",
+        data=_rpicam_form(camera_setting_analoggain="4"),
+        headers=_auth_header("deployment-secret"),
+    )
+
+    assert response.status_code == 400
+    assert not (tmp_path / "config.json").exists()
+    _close_preview(app)
+
+
+def test_automatic_exposure_submission_keeps_saved_manual_values(tmp_path: Path) -> None:
+    """Disabled shutter/gain inputs are not submitted, so saved values survive a mode switch."""
+    app = _rpicam_app(tmp_path)
+    client = app.test_client()
+    headers = _auth_header("deployment-secret")
+    client.post(
+        "/admin/settings",
+        data=_rpicam_form(
+            camera_setting_exposure_control="manual", camera_setting_shutter_us="20000"
+        ),
+        headers=headers,
+    )
+
+    response = client.post(
+        "/admin/settings",
+        data=_rpicam_form(camera_setting_exposure_control="auto"),
+        headers=headers,
+    )
+
+    assert response.status_code == 303
+    stored = json.loads((tmp_path / "config.json").read_text())["startup"]["camera_settings"]
+    assert stored["exposure_control"] == "auto"
+    assert stored["shutter_us"] == 20000
+    _close_preview(app)

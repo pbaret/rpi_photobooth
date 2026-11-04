@@ -115,7 +115,14 @@ After an accepted capture request and countdown:
    the child forcefully and waits again. It does not start still capture until
    the preview child is confirmed terminated.
 4. The backend runs `rpicam-still` as a finite operation with an explicit
-   timeout and writes only to the service-provided temporary path.
+   timeout and writes only to the service-provided temporary path. The full
+   argument list is logged at INFO (`shlex.join`) just before execution; the
+   process still receives the argument list, never a shell string. With the
+   default autofocus-on-capture, `--immediate` is omitted so rpicam-still runs
+   a short viewfinder phase in which it performs the autofocus scan (about
+   0.45 s extra on Camera Module 3); without it, `--immediate` is kept. The
+   white CAPTURING screen remains displayed during this time. See
+   `docs/configuration.md` section 17a for the still settings.
 5. The backend validates process success sufficiently to report capture
    failure; the service validates the resulting JPEG, then publishes it and
    creates its metadata and thumbnail.

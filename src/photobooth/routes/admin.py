@@ -134,7 +134,12 @@ def administration() -> ResponseReturnValue:
 
 @admin_blueprint.post("/settings")
 def update_settings() -> ResponseReturnValue:
-	"""Validate, atomically persist, and selectively apply submitted settings."""
+	"""Validate, atomically persist, and selectively apply submitted settings.
+
+	Camera submissions are validated per setting and then as a complete set
+	by the active backend, so cross-setting errors (for example an autofocus
+	window leaving the frame) are rejected before anything is saved.
+	"""
 	persisted = _persisted_configuration()
 	effective = _effective_configuration()
 	raw_values = request.form.to_dict(flat=True)
@@ -146,6 +151,10 @@ def update_settings() -> ResponseReturnValue:
 		updated_camera_settings, camera_updates = _camera_setting_updates(
 			raw_values, persisted.startup.camera_settings, camera_capabilities
 		)
+		try:
+			camera.validate_settings(updated_camera_settings)
+		except ValueError as error:
+			raise ConfigurationError(f"camera setting {error}") from error
 		backend_value = raw_values.get(
 			"camera_backend", persisted.startup.camera_backend.value
 		)

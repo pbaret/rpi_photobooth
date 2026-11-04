@@ -30,6 +30,10 @@ class FakeCameraBackend:
         """Ignore saved requests because this contract fake declares no controls."""
         del settings
 
+    def validate_settings(self, settings: Mapping[str, CameraSettingValue]) -> None:
+        """Accept any mapping because unknown identifiers are ignored by contract."""
+        del settings
+
     def apply_setting(self, setting: ValidatedCameraSetting) -> CameraSettingValue:
         """Reject settings because this fake does not declare any capabilities."""
         raise ValueError(f"unsupported setting: {setting.identifier}")

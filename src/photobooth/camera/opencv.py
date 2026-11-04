@@ -118,6 +118,21 @@ class OpenCVCameraBackend:
                 validated = validate_camera_setting(capability, value)
                 self._store_setting_locked(validated)
 
+    def validate_settings(
+        self, settings: Mapping[str, CameraSettingValue]
+    ) -> None:
+        """Validate known requests individually; OpenCV controls have no cross-rules.
+
+        Raises ``ValueError`` for an invalid known setting without changing
+        the backend or touching the device.
+        """
+        with self._lock:
+            capabilities = {item.identifier: item for item in self._capabilities_locked()}
+        for identifier, value in settings.items():
+            capability = capabilities.get(identifier)
+            if capability is not None:
+                validate_camera_setting(capability, value)
+
     def apply_setting(self, setting: ValidatedCameraSetting) -> CameraSettingValue:
         """Apply software mirroring immediately; resolution awaits camera restart."""
         with self._lock:

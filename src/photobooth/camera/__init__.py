@@ -10,6 +10,7 @@ from photobooth.camera.opencv import OpenCVCameraBackend
 from photobooth.camera.rpicam import RpicamCameraBackend
 from photobooth.camera.settings import (
     CameraSettingCapability,
+    CameraSettingCondition,
     CameraSettingType,
     CameraSettingValue,
     ValidatedCameraSetting,
@@ -23,6 +24,7 @@ __all__ = [
     "CameraOperationError",
     "CameraUnavailableError",
     "CameraSettingCapability",
+    "CameraSettingCondition",
     "CameraSettingType",
     "CameraSettingValue",
     "OpenCVCameraBackend",

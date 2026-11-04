@@ -19,8 +19,8 @@ is ever passed through as a command-line argument.
 import logging
 import os
 import secrets
+import shlex
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
 from pathlib import Path
 from threading import Condition, Lock, Thread
 from typing import Final
@@ -36,13 +36,31 @@ from photobooth.camera.process import (
     ProcessTimeoutError,
     SubprocessCameraProcessRunner,
 )
+from photobooth.camera.rpicam_settings import (
+    JPEG_QUALITY_MAXIMUM,
+    JPEG_QUALITY_MINIMUM,
+    PREVIEW_SIZES,
+    RpicamSettings,
+    capabilities_for,
+    format_number,
+    settings_from_mapping,
+)
 from photobooth.camera.settings import (
     CameraSettingCapability,
-    CameraSettingType,
     CameraSettingValue,
     ValidatedCameraSetting,
     validate_camera_setting,
 )
+
+__all__ = [
+    "JPEG_QUALITY_MAXIMUM",
+    "JPEG_QUALITY_MINIMUM",
+    "PREVIEW_SIZES",
+    "RpicamCameraBackend",
+    "RpicamSettings",
+    "build_preview_command",
+    "build_still_command",
+]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -50,41 +68,7 @@ _VID_EXECUTABLE: Final = "rpicam-vid"
 _STILL_EXECUTABLE: Final = "rpicam-still"
 _READ_CHUNK_BYTES: Final = 65536
 _READER_JOIN_SECONDS: Final = 2.0
-
-PREVIEW_SIZES: Final[dict[str, tuple[int, int]]] = {
-    "640x480": (640, 480),
-    "1280x720": (1280, 720),
-    "1920x1080": (1920, 1080),
-}
-WHITE_BALANCE_MODES: Final[tuple[str, ...]] = (
-    "auto",
-    "incandescent",
-    "tungsten",
-    "fluorescent",
-    "indoor",
-    "daylight",
-    "cloudy",
-)
-JPEG_QUALITY_MINIMUM: Final = 50
-JPEG_QUALITY_MAXIMUM: Final = 100
-
-
-@dataclass(frozen=True)
-class RpicamSettings:
-    """Hold the allowlisted rpicam options applied to each launched command.
-
-    Values are validated against the capability declarations before they are
-    stored, so the command builders can index ``PREVIEW_SIZES`` directly.
-    """
-
-    preview_size: str = "1280x720"
-    jpeg_quality: int = 93
-    white_balance: str = "auto"
-
-    @property
-    def preview_dimensions(self) -> tuple[int, int]:
-        """Return the (width, height) pair requested from rpicam-vid."""
-        return PREVIEW_SIZES[self.preview_size]
+_OUTPUT_PLACEHOLDER: Final = "<temporary-output>"
 
 
 def build_preview_command(executable: str, settings: RpicamSettings) -> tuple[str, ...]:
@@ -106,7 +90,7 @@ def build_preview_command(executable: str, settings: RpicamSettings) -> tuple[st
         "--height",
         str(height),
         "--awb",
-        settings.white_balance,
+        settings.white_balance.value,
         "--flush",
         "-o",
         "-",
@@ -116,26 +100,86 @@ def build_preview_command(executable: str, settings: RpicamSettings) -> tuple[st
 def build_still_command(
     executable: str, settings: RpicamSettings, output_path: Path
 ) -> tuple[str, ...]:
-    """Build the argument list for one full-resolution JPEG still.
+    """Build the argument list for one JPEG still from validated settings.
 
-    ``--immediate`` skips rpicam-still's autofocus and preview warm-up wait,
-    matching the validated diagnostic command.
+    Every argument comes from a typed field, never from free text. Inactive
+    settings are omitted rather than emitted with placeholder values:
+
+    - ``--shutter`` and ``--gain`` only appear in manual exposure; automatic
+      exposure leaves both to the AE algorithm.
+    - Manual focus emits ``--lens-position`` and no autofocus range, speed,
+      window or on-capture argument; automatic and continuous focus emit
+      those instead and never a lens position.
+    - ``--immediate`` skips rpicam-still's viewfinder phase. rpicam-apps 1.14
+      only runs the ``--autofocus-on-capture`` scan during that phase, so
+      ``--immediate`` is dropped whenever the scan is requested (verified on
+      Camera Module 3: with ``--immediate`` the lens did not move).
+
+    Options with an implicit value (``--hdr``, ``--verbose``) use the
+    ``--option=value`` form so the value cannot be parsed as a separate
+    token. Raises ``ValueError`` if cross-field rules fail.
     """
-    return (
-        executable,
-        "--nopreview",
-        "--immediate",
+    settings.validate()
+    command: list[str] = [executable, "--nopreview"]
+    if not settings.scans_on_capture:
+        command.append("--immediate")
+    command += [
         "-t",
         "1",
         "--encoding",
         "jpg",
         "--quality",
         str(settings.jpeg_quality),
+        "--width",
+        str(settings.still_width),
+        "--height",
+        str(settings.still_height),
         "--awb",
-        settings.white_balance,
-        "-o",
-        str(output_path),
-    )
+        settings.white_balance.value,
+        "--metering",
+        settings.metering.value,
+        "--exposure",
+        settings.exposure_mode.value,
+        "--ev",
+        format_number(settings.ev),
+    ]
+    if settings.manual_exposure:
+        command += [
+            "--shutter",
+            str(settings.shutter_us),
+            "--gain",
+            format_number(settings.gain),
+        ]
+    command += [
+        "--brightness",
+        format_number(settings.brightness),
+        "--contrast",
+        format_number(settings.contrast),
+        "--saturation",
+        format_number(settings.saturation),
+        "--sharpness",
+        format_number(settings.sharpness),
+        "--denoise",
+        settings.denoise.value,
+        f"--hdr={settings.hdr.value}",
+        "--autofocus-mode",
+        settings.autofocus_mode.value,
+    ]
+    if settings.manual_focus:
+        command += ["--lens-position", format_number(settings.lens_position)]
+    else:
+        command += [
+            "--autofocus-range",
+            settings.autofocus_range.value,
+            "--autofocus-speed",
+            settings.autofocus_speed.value,
+            "--autofocus-window",
+            settings.autofocus_window.to_argument(),
+        ]
+        if settings.scans_on_capture:
+            command.append("--autofocus-on-capture")
+    command += [f"--verbose={settings.verbosity}", "-o", str(output_path)]
+    return tuple(command)
 
 
 class _PreviewEndedError(Exception):
@@ -269,6 +313,7 @@ class RpicamCameraBackend:
         self._still_timeout = still_timeout_seconds
         self._lock = Lock()
         self._settings = RpicamSettings()
+        self._last_still_command: str | None = None
         self._started = False
         self._preview: _PreviewSession | None = None
 
@@ -280,22 +325,30 @@ class RpicamCameraBackend:
     def configure_settings(self, settings: Mapping[str, CameraSettingValue]) -> None:
         """Load persisted requests for known settings; unknown keys are ignored.
 
-        Invalid values for known settings raise ``ValueError`` and leave the
+        The whole mapping is applied atomically: invalid, read-only or
+        mutually inconsistent values raise ``ValueError`` and leave every
         previously stored setting unchanged.
         """
         with self._lock:
-            capabilities = {item.identifier: item for item in self._capabilities_locked()}
-            for identifier, value in settings.items():
-                capability = capabilities.get(identifier)
-                if capability is None:
-                    continue
-                self._store_setting_locked(validate_camera_setting(capability, value))
+            self._settings = settings_from_mapping(self._settings, settings)
+
+    def validate_settings(self, settings: Mapping[str, CameraSettingValue]) -> None:
+        """Check a complete requested set over the defaults without storing it.
+
+        Enforces per-setting bounds and cross-setting rules such as the
+        autofocus window staying inside the frame. Raises ``ValueError``
+        starting with the offending identifier.
+        """
+        settings_from_mapping(RpicamSettings(), settings)
 
     def apply_setting(self, setting: ValidatedCameraSetting) -> CameraSettingValue:
         """Apply a runtime-changeable setting to the next launched command.
 
         Raises ``ValueError`` for unknown, read-only or restart-required
-        settings, and for values outside the declared allowlist.
+        settings, and for values outside the declared allowlist. Cross-field
+        rules are not checked here because a multi-field update applies one
+        setting at a time; callers check the final set with
+        ``validate_settings`` first, and still-command construction re-checks.
         """
         with self._lock:
             capabilities = {item.identifier: item for item in self._capabilities_locked()}
@@ -387,48 +440,11 @@ class RpicamCameraBackend:
 
     def _capabilities_locked(self) -> tuple[CameraSettingCapability, ...]:
         """Build the declared settings from the current requested values."""
-        settings = self._settings
-        return (
-            CameraSettingCapability(
-                identifier="preview_size",
-                label="Preview size",
-                value_type=CameraSettingType.ENUM,
-                default_value="1280x720",
-                requested_value=settings.preview_size,
-                allowed_values=tuple(PREVIEW_SIZES),
-                restart_required=True,
-                description="Preview resolution requested from rpicam-vid; applies when preview restarts.",
-            ),
-            CameraSettingCapability(
-                identifier="jpeg_quality",
-                label="JPEG quality",
-                value_type=CameraSettingType.INTEGER,
-                default_value=93,
-                requested_value=settings.jpeg_quality,
-                minimum=JPEG_QUALITY_MINIMUM,
-                maximum=JPEG_QUALITY_MAXIMUM,
-                step=1,
-                description="JPEG quality for captured stills.",
-            ),
-            CameraSettingCapability(
-                identifier="white_balance",
-                label="White balance",
-                value_type=CameraSettingType.ENUM,
-                default_value="auto",
-                requested_value=settings.white_balance,
-                allowed_values=WHITE_BALANCE_MODES,
-                description="Automatic white balance preset passed to rpicam-vid and rpicam-still.",
-            ),
-        )
+        return capabilities_for(self._settings, self._last_still_command)
 
     def _store_setting_locked(self, setting: ValidatedCameraSetting) -> None:
         """Replace one allowlisted option after its value has been validated."""
-        if setting.identifier == "preview_size":
-            self._settings = replace(self._settings, preview_size=str(setting.value))
-        elif setting.identifier == "jpeg_quality":
-            self._settings = replace(self._settings, jpeg_quality=int(setting.value))
-        elif setting.identifier == "white_balance":
-            self._settings = replace(self._settings, white_balance=str(setting.value))
+        self._settings = self._settings.with_setting(setting)
 
     def _require_started_locked(self) -> None:
         """Raise ``CameraUnavailableError`` unless ``start`` has succeeded."""
@@ -492,19 +508,34 @@ class RpicamCameraBackend:
         self._started = False
 
     def _run_still_locked(self, output_path: Path) -> None:
-        """Run rpicam-still into a sibling temporary file and publish it atomically."""
+        """Run rpicam-still into a sibling temporary file and publish it atomically.
+
+        The exact argument list is logged at INFO with ``shlex.join`` just
+        before execution; the logged text is never executed. The runner still
+        receives the original argument sequence and never uses a shell. The
+        arguments and outcome are kept for the read-only diagnostic setting,
+        with the temporary output path replaced by a placeholder.
+        """
         executable = self._resolve_executable_locked(_STILL_EXECUTABLE)
         temporary = output_path.with_name(
             f".{output_path.name}.{secrets.token_hex(8)}.tmp"
         )
-        args = build_still_command(executable, self._settings, temporary)
+        try:
+            args = build_still_command(executable, self._settings, temporary)
+        except ValueError as error:
+            raise CameraOperationError("rpicam still settings are inconsistent") from error
+        display = shlex.join((*args[:-1], _OUTPUT_PLACEHOLDER))
+        _LOGGER.info("Running rpicam-still: %s", shlex.join(args))
         try:
             try:
                 result = self._runner.run(args, self._still_timeout)
             except ProcessLaunchError as error:
+                self._last_still_command = f"{display} (could not start)"
                 raise CameraUnavailableError("rpicam-still could not be started") from error
             except ProcessTimeoutError as error:
+                self._last_still_command = f"{display} (timed out)"
                 raise CameraOperationError("rpicam-still timed out") from error
+            self._last_still_command = f"{display} (exit {result.returncode})"
             if result.returncode != 0:
                 _LOGGER.warning("rpicam-still exited %d: %s", result.returncode, result.stderr_tail)
                 raise CameraOperationError("rpicam-still failed")
