@@ -31,3 +31,17 @@ On the Raspberry Pi, validate the rpicam camera stack without the application
 (see `docs/troubleshooting.md`):
 
     scripts/pi-diagnostics.sh
+
+## Raspberry Pi installation
+
+On Raspberry Pi OS, install [uv](https://docs.astral.sh/uv/getting-started/installation/),
+then install the camera and printer system packages:
+
+    sudo apt update
+    sudo apt install rpicam-apps printer-driver-gutenprint
+
+From the repository directory, install the Python dependencies and start the
+application:
+
+    uv sync
+    uv run python -m photobooth
