@@ -1,10 +1,10 @@
 {
   "startup": {
-    "bind_host": "127.0.0.1",
+    "bind_host": "0.0.0.0",
     "port": 5000,
     "debug": false,
     "data_root": "data",
-    "camera_backend": "synthetic",
+    "camera_backend": "rpicam",
     "public_base_url": null,
     "download_token_lifetime_seconds": 3600
   },

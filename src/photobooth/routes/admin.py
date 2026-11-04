@@ -155,12 +155,6 @@ def update_settings() -> ResponseReturnValue:
 			raise ConfigurationError(
 				"camera_backend must be a supported camera backend"
 			) from error
-		if (
-			camera_backend is CameraBackendKind.RPICAM
-			and persisted.startup.camera_backend is not CameraBackendKind.RPICAM
-		):
-			raise ConfigurationError("camera_backend rpicam is not implemented yet")
-
 		startup = replace(
 			persisted.startup,
 			camera_backend=camera_backend,

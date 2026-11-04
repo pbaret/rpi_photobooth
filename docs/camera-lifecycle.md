@@ -90,10 +90,19 @@ operating system still requires rpicam-apps and libcamera.
 
 ### Ready and preview
 
-On entry to booth-ready mode, the application starts the backend and
-`rpicam-vid`. A successful start establishes preview ownership. Repeated start
-does not create a second preview process. A startup error is returned through
-the camera contract and the workflow enters ERROR.
+`start()` validates that `rpicam-vid` and `rpicam-still` can be found on the
+executable path, but does not spawn `rpicam-vid`. The preview process is
+spawned lazily by the first `preview_frame()` call, so that a capture, which
+stops and restarts preview, does not launch a camera process it would
+immediately terminate. Repeated start does not create a second preview
+process. A missing executable or startup error is returned through the camera
+contract and the workflow enters ERROR. All browser clients share the single
+`rpicam-vid` process; it is terminated when the backend stops preview.
+
+Known limitation: if the Python process is killed with SIGKILL, `rpicam-vid`
+is not reaped by the backend. The standard library provides no parent-death
+signal, so an operator must check for orphaned `rpicam-vid` processes after an
+abnormal exit.
 
 ### Preview-to-capture transition
 

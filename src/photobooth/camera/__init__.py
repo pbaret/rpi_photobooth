@@ -7,6 +7,7 @@ from photobooth.camera.contract import (
     CameraUnavailableError,
 )
 from photobooth.camera.opencv import OpenCVCameraBackend
+from photobooth.camera.rpicam import RpicamCameraBackend
 from photobooth.camera.settings import (
     CameraSettingCapability,
     CameraSettingType,
@@ -25,6 +26,7 @@ __all__ = [
     "CameraSettingType",
     "CameraSettingValue",
     "OpenCVCameraBackend",
+    "RpicamCameraBackend",
     "SyntheticCameraBackend",
     "ValidatedCameraSetting",
     "validate_camera_setting",

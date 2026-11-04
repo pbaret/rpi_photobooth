@@ -2,7 +2,12 @@
 
 from flask import Flask
 
-from photobooth.camera import CameraBackend, OpenCVCameraBackend, SyntheticCameraBackend
+from photobooth.camera import (
+    CameraBackend,
+    OpenCVCameraBackend,
+    RpicamCameraBackend,
+    SyntheticCameraBackend,
+)
 from photobooth.config import (
     ApplicationConfig,
     CameraBackend as CameraBackendKind,
@@ -88,4 +93,6 @@ def _create_camera_backend(kind: CameraBackendKind) -> CameraBackend:
         return SyntheticCameraBackend()
     if kind is CameraBackendKind.OPENCV:
         return OpenCVCameraBackend()
+    if kind is CameraBackendKind.RPICAM:
+        return RpicamCameraBackend()
     raise ValueError(f"camera backend is not implemented: {kind.value}")

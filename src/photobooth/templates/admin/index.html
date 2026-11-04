@@ -128,7 +128,7 @@
               <select id="camera_backend" name="camera_backend" aria-invalid="{{ 'true' if errors.get('camera_backend') else 'false' }}">
                 <option value="synthetic" {% if values.camera_backend == 'synthetic' %}selected{% endif %}>Synthetic</option>
                 <option value="opencv" {% if values.camera_backend == 'opencv' %}selected{% endif %}>OpenCV</option>
-                {% if values.camera_backend == 'rpicam' %}<option value="rpicam" selected disabled>rpicam (not implemented)</option>{% endif %}
+                {% if values.camera_backend == 'rpicam' %}<option value="rpicam" selected disabled>rpicam (set in configuration)</option>{% endif %}
               </select>
               {% if errors.get('camera_backend') %}<span class="error">{{ errors.get('camera_backend') }}</span>{% endif %}
             </label>
