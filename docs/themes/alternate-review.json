@@ -1,10 +1,27 @@
 {
   "colors": {
-    "background": "#1b0f3a",
     "surface": "#2c1d5c",
     "foreground": "#ffffff",
     "primary": "#ff4f8b",
     "primary_text": "#ffffff"
+  },
+  "preview_background": {
+    "color": "#1b0f3a",
+    "image": null,
+    "fit": "cover",
+    "position": "center"
+  },
+  "review_background": {
+    "color": "#1b0f3a",
+    "image": null,
+    "fit": "cover",
+    "position": "center"
+  },
+  "slideshow_background": {
+    "color": "#1b0f3a",
+    "image": null,
+    "fit": "cover",
+    "position": "center"
   },
   "preview": {
     "position": "center",

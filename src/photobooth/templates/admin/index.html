@@ -353,6 +353,30 @@
         {% if errors.get(name) %}<span class="error">{{ errors.get(name) }}</span>{% endif %}
       </label>
       {% endmacro %}
+      {% macro theme_background(screen, label) %}
+      {% set prefix = 'theme_' ~ screen ~ '_background' %}
+      <fieldset>
+        <legend><h2>{{ label }}</h2></legend>
+        <div class="fields">
+          {{ theme_color(prefix ~ '_color', 'Background color') }}
+          <label for="{{ prefix }}_image">Background image
+            <select id="{{ prefix }}_image" name="{{ prefix }}_image" aria-invalid="{{ 'true' if errors.get(prefix ~ '_image') else 'false' }}">
+              <option value="">None (solid background color)</option>
+              {% for value, text in background_choices %}
+              <option value="{{ value }}" {% if theme_values.get(prefix ~ '_image') == value %}selected{% endif %}>{{ text }}</option>
+              {% endfor %}
+            </select>
+            {% if errors.get(prefix ~ '_image') %}<span class="error">{{ errors.get(prefix ~ '_image') }}</span>{% endif %}
+          </label>
+          <label for="{{ prefix }}_upload">Upload new image (selects it for this screen)
+            <input id="{{ prefix }}_upload" name="{{ prefix }}_upload" type="file" accept="image/jpeg,image/png,image/webp" aria-invalid="{{ 'true' if errors.get(prefix ~ '_upload') else 'false' }}">
+            {% if errors.get(prefix ~ '_upload') %}<span class="error">{{ errors.get(prefix ~ '_upload') }}</span>{% endif %}
+          </label>
+          {{ theme_select(prefix ~ '_fit', 'Image fit', theme_options.background_fit) }}
+          {{ theme_select(prefix ~ '_position', 'Image position', theme_options.background_position) }}
+        </div>
+      </fieldset>
+      {% endmacro %}
 
       <form id="appearance" action="{{ url_for('admin.update_theme') }}" method="post" enctype="multipart/form-data">
         <h2 class="section-title">Event appearance</h2>
@@ -363,7 +387,6 @@
         <fieldset>
           <legend><h2>Colors</h2></legend>
           <div class="fields">
-            {{ theme_color('theme_colors_background', 'Background') }}
             {{ theme_color('theme_colors_surface', 'Panels (surface)') }}
             {{ theme_color('theme_colors_foreground', 'Text') }}
             {{ theme_color('theme_colors_primary', 'Primary buttons') }}
@@ -376,26 +399,9 @@
           </div>
         </fieldset>
 
-        <fieldset>
-          <legend><h2>Background</h2></legend>
-          <div class="fields">
-            <label for="theme_background_image">Background image
-              <select id="theme_background_image" name="theme_background_image" aria-invalid="{{ 'true' if errors.get('theme_background_image') else 'false' }}">
-                <option value="">None (solid background color)</option>
-                {% for value, text in background_choices %}
-                <option value="{{ value }}" {% if theme_values.get('theme_background_image') == value %}selected{% endif %}>{{ text }}</option>
-                {% endfor %}
-              </select>
-              {% if errors.get('theme_background_image') %}<span class="error">{{ errors.get('theme_background_image') }}</span>{% endif %}
-            </label>
-            <label for="theme_background_upload">Upload new image (selects it)
-              <input id="theme_background_upload" name="theme_background_upload" type="file" accept="image/jpeg,image/png,image/webp" aria-invalid="{{ 'true' if errors.get('theme_background_upload') else 'false' }}">
-              {% if errors.get('theme_background_upload') %}<span class="error">{{ errors.get('theme_background_upload') }}</span>{% endif %}
-            </label>
-            {{ theme_select('theme_background_fit', 'Image fit', theme_options.background_fit) }}
-            {{ theme_select('theme_background_position', 'Image position', theme_options.background_position) }}
-          </div>
-        </fieldset>
+        {{ theme_background('preview', 'Écran Preview') }}
+        {{ theme_background('review', 'Écran Review') }}
+        {{ theme_background('slideshow', 'Écran Slideshow') }}
 
         <fieldset>
           <legend><h2>Booth preview layout</h2></legend>
@@ -449,7 +455,7 @@
       // Live color sample only; the booth itself is the source of truth.
       const sample = document.getElementById("theme-sample");
       const sampleProperties = {
-        theme_colors_background: "--sample-background",
+        theme_preview_background_color: "--sample-background",
         theme_colors_surface: "--sample-surface",
         theme_colors_foreground: "--sample-foreground",
         theme_colors_primary: "--sample-primary",

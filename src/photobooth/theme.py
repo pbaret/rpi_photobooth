@@ -2,8 +2,9 @@
 
 The event theme is persisted in a dedicated JSON document, ``theme.json``,
 stored beside ``config.json``. Swapping that one file changes the visual
-identity of an event (colors, background artwork, PREVIEW and REVIEW
-composition) without touching startup or booth settings, templates or CSS.
+identity of an event (shared colors, per-screen backgrounds and PREVIEW and
+REVIEW composition) without touching startup or booth settings, templates or
+CSS.
 
 The model is a closed vocabulary: colors are ``#rrggbb`` values, a background
 image is an opaque identifier managed by ``BackgroundService`` and every
@@ -135,14 +136,13 @@ class WidgetAnchor(str, Enum):
 
 @dataclass(frozen=True)
 class ThemeColors:
-    """Hold the participant palette as validated ``#rrggbb`` strings.
+    """Hold shared participant colors as validated ``#rrggbb`` strings.
 
     ``primary_text`` is drawn on ``primary`` (capture and main action
-    buttons); ``foreground`` is drawn on ``background`` and ``surface``.
-    Contrast between these pairs is the event designer's responsibility.
+    buttons); ``foreground`` is drawn on screen backgrounds and ``surface``.
+    Contrast is the event designer's responsibility.
     """
 
-    background: str = "#111316"
     surface: str = "#1f2328"
     foreground: str = "#f5f1e8"
     primary: str = "#f2b544"
@@ -151,7 +151,6 @@ class ThemeColors:
     def __post_init__(self) -> None:
         """Reject any value that is not a six-digit hexadecimal color."""
         for name, value in (
-            ("background", self.background),
             ("surface", self.surface),
             ("foreground", self.foreground),
             ("primary", self.primary),
@@ -162,23 +161,27 @@ class ThemeColors:
 
 
 @dataclass(frozen=True)
-class BackgroundSettings:
-    """Describe the optional event artwork behind participant screens.
+class ScreenBackground:
+    """Describe the color and optional managed artwork for one screen.
 
     ``image`` is a managed background identifier or ``None`` for a solid
     background color. A configured image that no longer exists is ignored at
-    render time and the background color is used instead.
+    render time and ``color`` is used instead. The same image identifier may
+    safely be shared by multiple screens.
     """
 
+    color: str = "#111316"
     image: str | None = None
     fit: BackgroundFit = BackgroundFit.COVER
     position: BackgroundPosition = BackgroundPosition.CENTER
 
     def __post_init__(self) -> None:
-        """Reject identifiers that were not produced by the background store."""
+        """Reject invalid colors and identifiers not produced by the store."""
+        if _HEX_COLOR_PATTERN.match(self.color) is None:
+            raise ConfigurationError("screen background color must be a #rrggbb hex color")
         if self.image is not None and not is_background_identifier(self.image):
             raise ConfigurationError(
-                "background.image must be a managed background identifier"
+                "screen background image must be a managed background identifier"
             )
 
 
@@ -259,31 +262,46 @@ class ThemeSettings:
     """Aggregate every event-specific visual choice for participant screens.
 
     Instances are immutable; the admin interface replaces the application's
-    current instance after a successful save. Absent theme values always fall
-    back to the defaults declared on the component models.
+    current instance after a successful save. Shared colors and layouts remain
+    separate from the independent PREVIEW, REVIEW and SLIDESHOW backgrounds.
+    Absent values fall back to their component-model defaults.
     """
 
     colors: ThemeColors = field(default_factory=ThemeColors)
-    background: BackgroundSettings = field(default_factory=BackgroundSettings)
+    preview_background: ScreenBackground = field(default_factory=ScreenBackground)
+    review_background: ScreenBackground = field(default_factory=ScreenBackground)
+    slideshow_background: ScreenBackground = field(default_factory=ScreenBackground)
     preview: PreviewLayout = field(default_factory=PreviewLayout)
     review: ReviewLayout = field(default_factory=ReviewLayout)
 
     def css_variables(self) -> dict[str, str]:
         """Map validated values to the participant stylesheet's custom properties.
 
-        The background image is deliberately excluded: its URL depends on the
-        request and on whether the managed file still exists.
+        Background image URLs are deliberately excluded: they depend on the
+        request and on whether each managed file still exists.
         """
         colors = self.colors
-        return {
-            "--booth-background-color": colors.background,
+        variables = {
             "--booth-surface-color": colors.surface,
             "--booth-foreground-color": colors.foreground,
             "--booth-primary-color": colors.primary,
             "--booth-primary-text-color": colors.primary_text,
-            "--booth-background-fit": self.background.fit.value,
-            "--booth-background-position": self.background.position.css_value,
         }
+        for screen, background in (
+            ("preview", self.preview_background),
+            ("review", self.review_background),
+            ("slideshow", self.slideshow_background),
+        ):
+            variables.update(
+                {
+                    f"--booth-{screen}-background-color": background.color,
+                    f"--booth-{screen}-background-fit": background.fit.value,
+                    f"--booth-{screen}-background-position": (
+                        background.position.css_value
+                    ),
+                }
+            )
+        return variables
 
 
 def load_theme(path: Path) -> ThemeSettings:
@@ -306,21 +324,21 @@ def save_theme(path: Path, theme: ThemeSettings) -> None:
 def theme_to_document(theme: ThemeSettings) -> dict[str, object]:
     """Serialize a theme into the documented ``theme.json`` structure."""
     colors = theme.colors
+    preview_background = theme.preview_background
+    review_background = theme.review_background
+    slideshow_background = theme.slideshow_background
     preview = theme.preview
     review = theme.review
     return {
         "colors": {
-            "background": colors.background,
             "surface": colors.surface,
             "foreground": colors.foreground,
             "primary": colors.primary,
             "primary_text": colors.primary_text,
         },
-        "background": {
-            "image": theme.background.image,
-            "fit": theme.background.fit.value,
-            "position": theme.background.position.value,
-        },
+        "preview_background": _background_document(preview_background),
+        "review_background": _background_document(review_background),
+        "slideshow_background": _background_document(slideshow_background),
         "preview": {
             "position": preview.position.value,
             "size": preview.size.value,
@@ -344,12 +362,42 @@ def parse_theme(document: Mapping[str, object]) -> ThemeSettings:
     Used for both ``theme.json`` and admin submissions. Error messages start
     with the dotted setting path, e.g. ``colors.primary``.
     """
-    _reject_unknown_keys(document, {"colors", "background", "preview", "review"}, "theme")
+    _reject_unknown_keys(
+        document,
+        {
+            "colors",
+            "background",
+            "preview_background",
+            "review_background",
+            "slideshow_background",
+            "preview",
+            "review",
+        },
+        "theme",
+    )
     defaults = ThemeSettings()
     colors = _section(
-        document, "colors", {"background", "surface", "foreground", "primary", "primary_text"}
+        document,
+        "colors",
+        {"background", "surface", "foreground", "primary", "primary_text"},
     )
-    background = _section(document, "background", {"image", "fit", "position"})
+    legacy_background = _section(document, "background", {"image", "fit", "position"})
+    legacy_color = _string(
+        colors, "colors", "background", defaults.preview_background.color
+    )
+    if _HEX_COLOR_PATTERN.match(legacy_color) is None:
+        raise ConfigurationError("colors.background must be a #rrggbb hex color")
+    legacy = ScreenBackground(
+        color=legacy_color,
+        image=_optional_identifier(legacy_background, "background"),
+        fit=_enum(legacy_background, "background", "fit", defaults.preview_background.fit),
+        position=_enum(
+            legacy_background,
+            "background",
+            "position",
+            defaults.preview_background.position,
+        ),
+    )
     preview = _section(
         document,
         "preview",
@@ -362,7 +410,6 @@ def parse_theme(document: Mapping[str, object]) -> ThemeSettings:
     )
     return ThemeSettings(
         colors=ThemeColors(
-            background=_string(colors, "colors", "background", defaults.colors.background),
             surface=_string(colors, "colors", "surface", defaults.colors.surface),
             foreground=_string(colors, "colors", "foreground", defaults.colors.foreground),
             primary=_string(colors, "colors", "primary", defaults.colors.primary),
@@ -370,12 +417,12 @@ def parse_theme(document: Mapping[str, object]) -> ThemeSettings:
                 colors, "colors", "primary_text", defaults.colors.primary_text
             ),
         ),
-        background=BackgroundSettings(
-            image=_optional_identifier(background),
-            fit=_enum(background, "background", "fit", defaults.background.fit),
-            position=_enum(
-                background, "background", "position", defaults.background.position
-            ),
+        preview_background=_screen_background(
+            document, "preview_background", legacy
+        ),
+        review_background=_screen_background(document, "review_background", legacy),
+        slideshow_background=_screen_background(
+            document, "slideshow_background", legacy
         ),
         preview=PreviewLayout(
             position=_enum(preview, "preview", "position", defaults.preview.position),
@@ -446,13 +493,47 @@ def _boolean(values: Mapping[str, object], section: str, name: str, default: boo
     return value
 
 
-def _optional_identifier(values: Mapping[str, object]) -> str | None:
-    """Return the background identifier, treating null and blank as no image."""
+def _background_document(background: ScreenBackground) -> dict[str, object]:
+    """Serialize one screen's validated background settings."""
+    return {
+        "color": background.color,
+        "image": background.image,
+        "fit": background.fit.value,
+        "position": background.position.value,
+    }
+
+
+def _screen_background(
+    document: Mapping[str, object], name: str, default: ScreenBackground
+) -> ScreenBackground:
+    """Parse one screen background, inheriting missing values from ``default``."""
+    values = _section(document, name, {"color", "image", "fit", "position"})
+    color = _string(values, name, "color", default.color)
+    if _HEX_COLOR_PATTERN.match(color) is None:
+        raise ConfigurationError(f"{name}.color must be a #rrggbb hex color")
+    return ScreenBackground(
+        color=color,
+        image=_optional_identifier(values, name, default.image),
+        fit=_enum(values, name, "fit", default.fit),
+        position=_enum(values, name, "position", default.position),
+    )
+
+
+def _optional_identifier(
+    values: Mapping[str, object], section: str, default: str | None = None
+) -> str | None:
+    """Return an allowlisted managed identifier, treating blank as no image."""
+    if "image" not in values:
+        return default
     value = values.get("image")
     if value is None or value == "":
         return None
     if not isinstance(value, str):
-        raise ConfigurationError("background.image must be a string or null")
+        raise ConfigurationError(f"{section}.image must be a string or null")
+    if not is_background_identifier(value):
+        raise ConfigurationError(
+            f"{section}.image must be a managed background identifier"
+        )
     return value
 
 

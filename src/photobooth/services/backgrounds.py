@@ -112,6 +112,15 @@ class BackgroundService:
         mimetype = "image/png" if identifier.endswith(".png") else "image/jpeg"
         return BackgroundContent(data, mimetype)
 
+    def validate(self, data: bytes) -> None:
+        """Validate image bytes without publishing them to managed storage.
+
+        This lets callers validate a batch of uploads before storing any of
+        them. Raises ``InvalidBackgroundError`` for unsupported or corrupt
+        images and never touches the filesystem.
+        """
+        self._decode(data)
+
     def store(self, data: bytes) -> str:
         """Validate, normalize and publish uploaded image bytes.
 

@@ -910,7 +910,9 @@ output, and camera status not available through the current backend contract.
 The participant look of an event is stored separately from startup and booth
 settings, in `theme.json` beside `config.json` (same directory, fixed name).
 `photobooth.theme` owns the typed model (`ThemeSettings`), parsing,
-persistence and the mapping to CSS. A missing file means the default theme;
+persistence and the mapping to CSS. Shared colors and layouts are separate
+from the independently configured PREVIEW, REVIEW and SLIDESHOW backgrounds.
+A missing file means the default theme;
 the file is created only when the admin appearance form is saved. To switch
 events, replace `theme.json` and reload the booth page, or save the admin
 form. Changes saved through the admin apply on the next participant page
@@ -937,13 +939,20 @@ file prevents startup, as `config.json` does.
 
     {
       "colors": {
-        "background": "#111316",
         "surface": "#1f2328",
         "foreground": "#f5f1e8",
         "primary": "#f2b544",
         "primary_text": "#15171a"
       },
-      "background": {"image": null, "fit": "cover", "position": "center"},
+      "preview_background": {
+        "color": "#111316", "image": null, "fit": "cover", "position": "center"
+      },
+      "review_background": {
+        "color": "#111316", "image": null, "fit": "cover", "position": "center"
+      },
+      "slideshow_background": {
+        "color": "#111316", "image": null, "fit": "cover", "position": "center"
+      },
       "preview": {
         "position": "left", "size": "large", "fit": "contain",
         "capture_position": "right",
@@ -959,8 +968,8 @@ file prevents startup, as `config.json` does.
 
 Each color must match `#rrggbb` exactly; names, short forms, `rgb()` and any
 other CSS text are rejected. `primary_text` is drawn on `primary` (the capture
-button and main actions); `foreground` is drawn on `background` and `surface`
-(panels). Contrast is the event designer's responsibility. Some elements
+button and main actions); `foreground` is drawn on each screen background and
+on `surface` (panels). Contrast is the event designer's responsibility. Some elements
 deliberately ignore the palette:
 
 - the countdown disc (white on translucent black);
@@ -968,11 +977,19 @@ deliberately ignore the palette:
 - the destructive red of `Supprimer`;
 - the white CAPTURING screen.
 
-### Background image
+### Screen backgrounds
 
-`background.image` is `null` or the identifier of an image managed by
+`preview_background`, `review_background` and `slideshow_background` each own
+their `color`, optional `image`, `fit` and `position`. These settings affect
+only that screen; shared button colors, typography and layout settings remain
+in the common theme. PREVIEW includes IDLE and COUNTDOWN. REVIEW applies to the
+dedicated photo review page. SLIDESHOW changes the surface behind slideshow
+thumbnails without replacing the displayed photo.
+
+Each `image` is `null` or the identifier of an image managed by
 `BackgroundService` (22 URL-safe characters plus `.jpg` or `.png`). Paths and
-URLs cannot be expressed. Images are added through the admin upload field:
+URLs cannot be expressed. Images are added through the corresponding admin
+screen-background upload field:
 
 1. the bytes are decoded with Pillow (JPEG, PNG or WebP, at most 40 MP);
 2. EXIF orientation is applied and the longest edge is limited to 3840 px;
@@ -980,14 +997,31 @@ URLs cannot be expressed. Images are added through the admin upload field:
 4. it is published atomically under `data_root/backgrounds/<random id>`.
 
 The client filename is ignored. A successful upload becomes the selected
-background. Request bodies are limited to 25 MB.
+background for that screen. Previously uploaded images remain selectable and
+one managed image may be selected by multiple screens. Images are immutable;
+changing a screen's selection does not delete or alter an image that another
+screen still uses. Request bodies are limited to 25 MB.
 
-Previously uploaded images remain selectable. If the configured file has
-been removed, participant pages fall back to `colors.background`.
+If a configured file has been removed from storage, only the affected screen
+falls back to its own `color`.
 
 `fit` is `cover` or `contain`. `position` is one of `center`, `top`,
 `bottom`, `left`, `right`, `top-left`, `top-right`, `bottom-left`,
 `bottom-right`.
+
+### Backward compatibility
+
+Themes written before per-screen backgrounds used `colors.background` and a
+single `background` object containing `image`, `fit` and `position`. They
+continue to load: the old color and image settings initialize PREVIEW, REVIEW
+and SLIDESHOW alike. Saving the migrated theme writes three explicit
+`*_background` objects and removes the legacy fields. Other shared colors and
+PREVIEW/REVIEW layouts are preserved. In a new-format theme, an omitted
+screen-background section uses its normal default.
+
+CAPTURING intentionally does not use any event background. Its full-screen
+white panel is supplemental camera light, with the black “Ne bougez plus”
+message; configurable backgrounds must never cover this state.
 
 ### Semantic layout
 
@@ -1026,18 +1060,21 @@ combinations are rejected because they can overlap on a landscape phone.
 
 ### Mapping to CSS
 
-`ThemeSettings.css_variables()` emits only:
+`ThemeSettings.css_variables()` emits the shared palette and validated
+screen-specific color, fit and position properties:
 
-- `--booth-background-color`;
 - `--booth-surface-color`;
 - `--booth-foreground-color`;
 - `--booth-primary-color`;
 - `--booth-primary-text-color`;
-- `--booth-background-fit`;
-- `--booth-background-position`.
+- `--booth-{preview|review|slideshow}-background-color`;
+- `--booth-{preview|review|slideshow}-background-fit`;
+- `--booth-{preview|review|slideshow}-background-position`.
 
-When the image exists, the booth Blueprint adds
-`--booth-background-image: url("/media/backgrounds/<id>")`.
+When a screen's image exists, the booth Blueprint adds that screen's
+`--booth-{screen}-background-image` property with its managed media URL.
+`participant.css` shares the common backdrop rendering rules and each
+participant element selects its screen-specific values.
 
 Layout enums become fixed classes:
 

@@ -12,13 +12,19 @@
  */
 
 :root {
-  --booth-background-color: #111316;
   --booth-surface-color: #1f2328;
   --booth-foreground-color: #f5f1e8;
   --booth-primary-color: #f2b544;
   --booth-primary-text-color: #15171a;
-  --booth-background-fit: cover;
-  --booth-background-position: center;
+  --booth-preview-background-color: #111316;
+  --booth-preview-background-fit: cover;
+  --booth-preview-background-position: center;
+  --booth-review-background-color: #111316;
+  --booth-review-background-fit: cover;
+  --booth-review-background-position: center;
+  --booth-slideshow-background-color: #111316;
+  --booth-slideshow-background-fit: cover;
+  --booth-slideshow-background-position: center;
   /* Fixed, not themed: mid-tone red stays legible on light and dark surfaces. */
   --booth-danger-color: #e0503f;
 
@@ -56,13 +62,34 @@ body {
   user-select: none;
 }
 
-/* Event backdrop: solid color, optionally covered by managed artwork. */
+/* Screen backdrops share rendering; each interface selects its own values. */
 .backdrop {
-  background-color: var(--booth-background-color);
-  background-image: var(--booth-background-image, none);
-  background-size: var(--booth-background-fit);
-  background-position: var(--booth-background-position);
+  background-color: var(--screen-background-color);
+  background-image: var(--screen-background-image, none);
+  background-size: var(--screen-background-fit);
+  background-position: var(--screen-background-position);
   background-repeat: no-repeat;
+}
+
+.preview-backdrop {
+  --screen-background-color: var(--booth-preview-background-color);
+  --screen-background-image: var(--booth-preview-background-image, none);
+  --screen-background-fit: var(--booth-preview-background-fit);
+  --screen-background-position: var(--booth-preview-background-position);
+}
+
+.review-backdrop {
+  --screen-background-color: var(--booth-review-background-color);
+  --screen-background-image: var(--booth-review-background-image, none);
+  --screen-background-fit: var(--booth-review-background-fit);
+  --screen-background-position: var(--booth-review-background-position);
+}
+
+.slideshow-backdrop {
+  --screen-background-color: var(--booth-slideshow-background-color);
+  --screen-background-image: var(--booth-slideshow-background-image, none);
+  --screen-background-fit: var(--booth-slideshow-background-fit);
+  --screen-background-position: var(--booth-slideshow-background-position);
 }
 
 .visually-hidden {
@@ -313,7 +340,7 @@ body {
   border-radius: 50%;
   background: var(--booth-primary-color);
   box-shadow:
-    0 0 0 max(4px, 0.9vmin) var(--booth-background-color),
+    0 0 0 max(4px, 0.9vmin) var(--booth-preview-background-color),
     0 0 0 max(7px, 1.7vmin) var(--booth-primary-color);
   color: var(--booth-primary-text-color);
   font: inherit;

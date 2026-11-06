@@ -6,7 +6,7 @@
     <title>Vérifier la photo</title>
     {% include "booth/_theme.html" %}
   </head>
-  <body class="backdrop{% if background_url %} has-background-image{% endif %}">
+  <body class="backdrop review-backdrop">
     <main class="stage {{ theme.review.stage_classes }}" id="review" data-photo-id="{{ photo.photo_id }}"
       style="--hero-aspect: {{ photo_aspect }}"
       data-idle-timeout-seconds="{{ idle_timeout_seconds }}"
@@ -62,7 +62,7 @@
         </div>
       </div>
     </main>
-    <section class="slideshow backdrop" id="slideshow-panel" aria-label="Diaporama" hidden>
+    <section class="slideshow backdrop slideshow-backdrop" id="slideshow-panel" aria-label="Diaporama" hidden>
       <img id="slideshow-image" alt="" hidden>
       <p class="wake-hint" role="status">Touchez l'écran pour démarrer</p>
     </section>

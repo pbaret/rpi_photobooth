@@ -6,7 +6,7 @@
     <title>{{ booth_name }}</title>
     {% include "booth/_theme.html" %}
   </head>
-  <body class="backdrop{% if background_url %} has-background-image{% endif %}">
+  <body class="backdrop preview-backdrop{% if background_urls.preview %} has-background-image{% endif %}">
     <main class="stage {{ theme.preview.stage_classes }}" id="booth" data-state="idle"
       data-countdown-seconds="{{ countdown_seconds }}"
       data-idle-timeout-seconds="{{ idle_timeout_seconds }}"
@@ -43,7 +43,7 @@
       <section class="capturing-panel" id="capturing-panel" aria-label="Prise de vue" hidden>
         <p class="state-label" role="status">Ne bougez plus</p>
       </section>
-      <section class="slideshow backdrop" id="slideshow-panel" aria-label="Diaporama" hidden>
+      <section class="slideshow backdrop slideshow-backdrop" id="slideshow-panel" aria-label="Diaporama" hidden>
         <img id="slideshow-image" alt="" hidden>
         <p class="wake-hint" role="status">Touchez l'écran pour démarrer</p>
       </section>

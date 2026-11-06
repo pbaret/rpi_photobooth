@@ -1,12 +1,24 @@
 {
   "colors": {
-    "background": "#f4ece1",
     "surface": "#fffaf3",
     "foreground": "#3a2c25",
     "primary": "#9c6b3f",
     "primary_text": "#ffffff"
   },
-  "background": {
+  "preview_background": {
+    "color": "#f4ece1",
+    "image": null,
+    "fit": "cover",
+    "position": "left"
+  },
+  "review_background": {
+    "color": "#f4ece1",
+    "image": null,
+    "fit": "cover",
+    "position": "left"
+  },
+  "slideshow_background": {
+    "color": "#f4ece1",
     "image": null,
     "fit": "cover",
     "position": "left"

@@ -58,6 +58,7 @@ from photobooth.theme import (
 	HeroPosition,
 	HeroSize,
 	PreviewFit,
+	ScreenBackground,
 	ThemeSettings,
 	WidgetAnchor,
 	parse_theme,
@@ -110,7 +111,7 @@ _BACKGROUND_POSITION_LABELS = {
 	BackgroundPosition.BOTTOM_LEFT: "Bottom left",
 	BackgroundPosition.BOTTOM_RIGHT: "Bottom right",
 }
-_THEME_COLOR_NAMES = ("background", "surface", "foreground", "primary", "primary_text")
+_THEME_COLOR_NAMES = ("surface", "foreground", "primary", "primary_text")
 
 
 @admin_blueprint.before_request
@@ -268,8 +269,9 @@ def update_theme() -> ResponseReturnValue:
 	"""Validate, persist and immediately apply the event appearance.
 
 	All fields are validated before an optional background upload is stored,
-	so an invalid form never publishes an image. An upload becomes the selected
-	background. The theme file is written atomically; on any failure the
+	so an invalid form never publishes an image. Each uploaded image becomes
+	the selection for its screen; existing managed images remain available to
+	other screens. The theme file is written atomically; on failure the
 	previous theme stays active and the form is re-rendered with the input.
 	"""
 	persisted = _persisted_configuration()
@@ -277,9 +279,18 @@ def update_theme() -> ResponseReturnValue:
 	raw_values = request.form.to_dict(flat=True)
 	try:
 		theme = parse_theme(_theme_document(raw_values))
-		selected_image = theme.background.image
-		if selected_image is not None and not backgrounds.exists(selected_image):
-			raise ConfigurationError("background.image is not an available background")
+		for section, screen_background in (
+			("preview_background", theme.preview_background),
+			("review_background", theme.review_background),
+			("slideshow_background", theme.slideshow_background),
+		):
+			if (
+				screen_background.image is not None
+				and not backgrounds.exists(screen_background.image)
+			):
+				raise ConfigurationError(
+					f"{section}.image is not an available background"
+				)
 	except ConfigurationError as error:
 		return _render_admin(
 			errors={_theme_error_field(str(error)): str(error)},
@@ -287,14 +298,23 @@ def update_theme() -> ResponseReturnValue:
 			theme_values=raw_values,
 		)
 
-	upload = request.files.get("theme_background_upload")
-	if upload is not None and upload.filename:
+	upload_data: dict[str, bytes] = {}
+	for section, screen_background in (
+		("preview_background", theme.preview_background),
+		("review_background", theme.review_background),
+		("slideshow_background", theme.slideshow_background),
+	):
+		field = f"theme_{section}_upload"
+		upload = request.files.get(field)
+		if upload is None or not upload.filename:
+			continue
 		try:
-			identifier = backgrounds.store(upload.read())
+			data = upload.read()
+			backgrounds.validate(data)
 		except InvalidBackgroundError:
 			return _render_admin(
 				errors={
-					"theme_background_upload": "The uploaded file is not a supported JPEG, PNG or WebP image."
+					field: "The uploaded file is not a supported JPEG, PNG or WebP image."
 				},
 				status=400,
 				theme_values=raw_values,
@@ -305,7 +325,48 @@ def update_theme() -> ResponseReturnValue:
 				status=500,
 				theme_values=raw_values,
 			)
-		theme = replace(theme, background=replace(theme.background, image=identifier))
+		upload_data[section] = data
+
+	updated_backgrounds: dict[str, ScreenBackground] = {}
+	for section, screen_background in (
+		("preview_background", theme.preview_background),
+		("review_background", theme.review_background),
+		("slideshow_background", theme.slideshow_background),
+	):
+		data = upload_data.get(section)
+		if data is None:
+			continue
+		field = f"theme_{section}_upload"
+		try:
+			identifier = backgrounds.store(data)
+		except InvalidBackgroundError:
+			return _render_admin(
+				errors={
+					field: "The uploaded file is not a supported JPEG, PNG or WebP image."
+				},
+				status=400,
+				theme_values=raw_values,
+			)
+		except BackgroundError:
+			return _render_admin(
+				errors={"theme_form": "The background image could not be stored."},
+				status=500,
+				theme_values=raw_values,
+			)
+		updated_backgrounds[section] = replace(screen_background, image=identifier)
+
+	theme = replace(
+		theme,
+		preview_background=updated_backgrounds.get(
+			"preview_background", theme.preview_background
+		),
+		review_background=updated_backgrounds.get(
+			"review_background", theme.review_background
+		),
+		slideshow_background=updated_backgrounds.get(
+			"slideshow_background", theme.slideshow_background
+		),
+	)
 
 	try:
 		save_theme(theme_path_for(persisted.config_path), theme)
@@ -419,17 +480,28 @@ def _options(labels: Mapping[_EnumT, str]) -> list[tuple[str, str]]:
 def _theme_form_values(theme: ThemeSettings) -> dict[str, str]:
 	"""Flatten the active theme into the appearance form's field values."""
 	colors = theme.colors
+	preview_background = theme.preview_background
+	review_background = theme.review_background
+	slideshow_background = theme.slideshow_background
 	preview = theme.preview
 	review = theme.review
 	return {
-		"theme_colors_background": colors.background,
 		"theme_colors_surface": colors.surface,
 		"theme_colors_foreground": colors.foreground,
 		"theme_colors_primary": colors.primary,
 		"theme_colors_primary_text": colors.primary_text,
-		"theme_background_image": theme.background.image or "",
-		"theme_background_fit": theme.background.fit.value,
-		"theme_background_position": theme.background.position.value,
+		"theme_preview_background_color": preview_background.color,
+		"theme_preview_background_image": preview_background.image or "",
+		"theme_preview_background_fit": preview_background.fit.value,
+		"theme_preview_background_position": preview_background.position.value,
+		"theme_review_background_color": review_background.color,
+		"theme_review_background_image": review_background.image or "",
+		"theme_review_background_fit": review_background.fit.value,
+		"theme_review_background_position": review_background.position.value,
+		"theme_slideshow_background_color": slideshow_background.color,
+		"theme_slideshow_background_image": slideshow_background.image or "",
+		"theme_slideshow_background_fit": slideshow_background.fit.value,
+		"theme_slideshow_background_position": slideshow_background.position.value,
 		"theme_preview_position": preview.position.value,
 		"theme_preview_size": preview.size.value,
 		"theme_preview_fit": preview.fit.value,
@@ -456,10 +528,23 @@ def _theme_document(raw_values: dict[str, str]) -> dict[str, object]:
 
 	return {
 		"colors": {name: value(f"colors_{name}") for name in _THEME_COLOR_NAMES},
-		"background": {
-			"image": value("background_image") or None,
-			"fit": value("background_fit"),
-			"position": value("background_position"),
+		"preview_background": {
+			"color": value("preview_background_color"),
+			"image": value("preview_background_image") or None,
+			"fit": value("preview_background_fit"),
+			"position": value("preview_background_position"),
+		},
+		"review_background": {
+			"color": value("review_background_color"),
+			"image": value("review_background_image") or None,
+			"fit": value("review_background_fit"),
+			"position": value("review_background_position"),
+		},
+		"slideshow_background": {
+			"color": value("slideshow_background_color"),
+			"image": value("slideshow_background_image") or None,
+			"fit": value("slideshow_background_fit"),
+			"position": value("slideshow_background_position"),
 		},
 		"preview": {
 			"position": value("preview_position"),

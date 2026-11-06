@@ -42,24 +42,31 @@ booth_blueprint = Blueprint("booth", __name__)
 def participant_theme() -> dict[str, object]:
     """Expose the current event theme to every participant template.
 
-    ``theme_variables`` contains only validated CSS custom properties. The
-    background URL is supplied only while the managed image still exists, so
-    a removed image falls back to the configured background color.
+    ``theme_variables`` contains only validated CSS custom properties.
+    Screen-specific background URLs are supplied only while each managed
+    image still exists, so a removed image falls back to its configured color.
     """
     theme = cast(ThemeSettings, current_app.extensions["photobooth.theme"])
     backgrounds = cast(
         BackgroundService, current_app.extensions["photobooth.backgrounds"]
     )
-    image = theme.background.image
-    background_url = (
-        url_for("media.background", background_id=image)
-        if image is not None and backgrounds.exists(image)
-        else None
-    )
+    screen_backgrounds = {
+        "preview": theme.preview_background,
+        "review": theme.review_background,
+        "slideshow": theme.slideshow_background,
+    }
+    background_urls = {
+        screen: (
+            url_for("media.background", background_id=background.image)
+            if background.image is not None and backgrounds.exists(background.image)
+            else None
+        )
+        for screen, background in screen_backgrounds.items()
+    }
     return {
         "theme": theme,
         "theme_variables": theme.css_variables(),
-        "background_url": background_url,
+        "background_urls": background_urls,
     }
 
 
