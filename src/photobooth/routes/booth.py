@@ -145,6 +145,7 @@ def review(photo_id: str) -> str:
         "submitted",
         "duplicate",
         "unknown",
+        "unavailable",
         "error",
     }:
         print_status = None

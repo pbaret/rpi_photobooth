@@ -16,9 +16,11 @@ from urllib.parse import urlsplit
 from PIL import Image, UnidentifiedImageError
 
 from photobooth.printing.contract import (
+    PhysicalPrinterStatus,
     PrintError,
     PrintJobState,
     PrintResult,
+    PrinterUnavailableError,
     PrintStatus,
 )
 from photobooth.printing.process import (
@@ -27,9 +29,14 @@ from photobooth.printing.process import (
     PrintProcessTimeoutError,
     SubprocessPrintProcessRunner,
 )
-from photobooth.printing.settings import PrintingSettings
+from photobooth.printing.settings import PrinterBackendKind, PrintingSettings
 
 _COMMAND_TIMEOUT_SECONDS: Final[float] = 15.0
+_CP1000_USB_VENDOR_ID: Final[str] = "04a9"
+_CP1000_USB_PRODUCT_ID: Final[str] = "32ae"
+_LSUSB_DEVICE_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"Bus [0-9]{3} Device [0-9]{3}: ID ([0-9A-Fa-f]{4}):([0-9A-Fa-f]{4})(?:\s+.+)?\Z"
+)
 _JOB_ID_PATTERN: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9_.-]+-[0-9]+\Z")
 _JOB_RESPONSE_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"\brequest id is\s+([A-Za-z0-9_.-]+-[0-9]+)\b", re.IGNORECASE
@@ -50,13 +57,16 @@ class QueueStatus(str, Enum):
 
 @dataclass(frozen=True)
 class CupsDiagnostics:
-    """Expose safe queue and executable information to protected administration."""
+    """Expose CUPS queue and independent USB-presence diagnostics to administration."""
 
     lp_available: bool
     lpstat_available: bool
     lpoptions_available: bool
+    cups_available: bool
     queues: tuple[str, ...]
     queue_status: QueueStatus
+    physical_printer_status: PhysicalPrinterStatus
+    physical_printer_error: str | None
     queue_description: str | None
     queue_model: str | None
     capabilities: dict[str, tuple[str, ...]]
@@ -71,7 +81,10 @@ class CupsPrinterBackend:
     bindings. It validates queue names and driver capabilities before `lp`,
     writes the supplied original JPEG bytes to a temporary file for the
     duration of the `lp` call, and does not infer physical output from
-    submission or CUPS completion.
+    submission or CUPS completion. A queue can persist while its printer is
+    disconnected, so each submission also checks for the observed CP1000 USB
+    vendor/product ID (`04a9:32ae`). This proves USB visibility only, not paper
+    or consumable readiness.
     """
 
     _OPTION_NAMES: Final[tuple[tuple[str, str], ...]] = (
@@ -118,10 +131,11 @@ class CupsPrinterBackend:
         return queues
 
     def get_diagnostics(self) -> CupsDiagnostics:
-        """Collect protected, bounded printer diagnostics without serial details."""
+        """Collect bounded CUPS and, when selected, physical-presence diagnostics."""
         lp_available = self._runner.find_executable("lp") is not None
         lpstat_available = self._runner.find_executable("lpstat") is not None
         lpoptions_available = self._runner.find_executable("lpoptions") is not None
+        cups_available = False
         queues: tuple[str, ...] = ()
         queue_status = (
             QueueStatus.UNAVAILABLE
@@ -133,8 +147,11 @@ class CupsPrinterBackend:
         capabilities: dict[str, tuple[str, ...]] = {}
         unsupported_options: tuple[str, ...] = ()
         error: str | None = None
+        physical_status = PhysicalPrinterStatus.NOT_CHECKED
+        physical_error: str | None = None
         try:
             queues = self.list_queues()
+            cups_available = True
             if self._settings.queue_name:
                 queue_status, description = self.get_queue_status(
                     self._settings.queue_name
@@ -152,12 +169,17 @@ class CupsPrinterBackend:
                         error = "The CUPS `lpoptions` command is unavailable."
         except PrintError as print_error:
             error = str(print_error)
+        if self._settings.backend is PrinterBackendKind.CUPS:
+            physical_status, physical_error = self._physical_printer_status()
         return CupsDiagnostics(
             lp_available=lp_available,
             lpstat_available=lpstat_available,
             lpoptions_available=lpoptions_available,
+            cups_available=cups_available,
             queues=queues,
             queue_status=queue_status,
+            physical_printer_status=physical_status,
+            physical_printer_error=physical_error,
             queue_description=description,
             queue_model=model,
             capabilities=capabilities,
@@ -248,13 +270,17 @@ class CupsPrinterBackend:
         del idempotency_key
         if not self._settings.enabled:
             raise PrintError("Printing is disabled in administration.")
+        command = self._require_cups_commands()
         self.validate_settings()
+        physical_status, physical_error = self._physical_printer_status()
+        if physical_status is not PhysicalPrinterStatus.CONNECTED:
+            raise PrinterUnavailableError(
+                physical_error
+                or "The Canon SELPHY CP1000 was not detected over USB."
+            )
         if not _is_jpeg(image_data):
             raise PrintError("The selected photo is not a valid JPEG.")
         options = self.options_for_settings()
-        command = self._runner.find_executable("lp")
-        if command is None:
-            raise PrintError("The CUPS `lp` command is unavailable.")
         _LOGGER.info(
             "Submitting photo to CUPS queue %s with options %s",
             self._settings.queue_name,
@@ -326,6 +352,51 @@ class CupsPrinterBackend:
         if "scheduler is running" not in result.stdout.casefold():
             raise PrintError("The CUPS service is unavailable.")
 
+    def _require_cups_commands(self) -> str:
+        """Resolve required CUPS executables before queue checks or USB discovery."""
+        commands = ("lp", "lpstat", "lpoptions")
+        resolved: dict[str, str] = {}
+        for name in commands:
+            command = self._runner.find_executable(name)
+            if command is None:
+                raise PrintError(f"The CUPS `{name}` command is unavailable.")
+            resolved[name] = command
+        return resolved["lp"]
+
+    def _physical_printer_status(
+        self,
+    ) -> tuple[PhysicalPrinterStatus, str | None]:
+        """Check lsusb output for the CP1000's observed vendor/product pair.
+
+        The check is intentionally on-demand: submissions always call it, and
+        protected Admin diagnostics call it only while the CUPS backend is
+        selected. It never includes raw USB output in errors or logs.
+        """
+        command = self._runner.find_executable("lsusb")
+        if command is None:
+            _LOGGER.error("Physical printer USB check unavailable: lsusb is missing")
+            return PhysicalPrinterStatus.UNKNOWN, "The `lsusb` command is unavailable."
+        try:
+            result = self._runner.run((command,), timeout=_COMMAND_TIMEOUT_SECONDS)
+        except PrintProcessLaunchError:
+            _LOGGER.error("Physical printer USB check could not start")
+            return PhysicalPrinterStatus.UNKNOWN, "The `lsusb` command could not start."
+        except PrintProcessTimeoutError:
+            _LOGGER.error("Physical printer USB check timed out")
+            return PhysicalPrinterStatus.UNKNOWN, "The USB printer check timed out."
+        if result.returncode != 0:
+            _LOGGER.error("Physical printer USB check failed with exit code %d", result.returncode)
+            return PhysicalPrinterStatus.UNKNOWN, "The USB printer check failed."
+        detected = _parse_lsusb_output(result.stdout)
+        if detected is None:
+            _LOGGER.error("Physical printer USB check returned unexpected output")
+            return PhysicalPrinterStatus.UNKNOWN, "The USB printer check returned unexpected output."
+        if detected:
+            _LOGGER.info("Canon SELPHY CP1000 detected over USB")
+            return PhysicalPrinterStatus.CONNECTED, None
+        _LOGGER.warning("Canon SELPHY CP1000 not detected over USB")
+        return PhysicalPrinterStatus.NOT_DETECTED, None
+
     def _queue_model(self, queue_name: str) -> str | None:
         """Read only the device URI host, discarding any serial or path portion."""
         output = self._run("lpstat", ("-v", queue_name)).stdout
@@ -392,6 +463,24 @@ class _CommandOutput:
 def _safe_queue_name(value: str) -> bool:
     """Return whether a discovered queue can safely occupy one argument."""
     return re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,126}", value) is not None
+
+
+def _parse_lsusb_output(output: str) -> bool | None:
+    """Return CP1000 presence, or ``None`` if bounded lsusb output is malformed."""
+    lines = tuple(line.strip() for line in output.splitlines() if line.strip())
+    if not lines:
+        return None
+    detected = False
+    for line in lines:
+        match = _LSUSB_DEVICE_PATTERN.fullmatch(line)
+        if match is None:
+            return None
+        if (
+            match.group(1).casefold() == _CP1000_USB_VENDOR_ID
+            and match.group(2).casefold() == _CP1000_USB_PRODUCT_ID
+        ):
+            detected = True
+    return detected
 
 
 def _validate_queue_name(value: str) -> None:

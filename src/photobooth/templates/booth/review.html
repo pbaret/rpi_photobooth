@@ -23,6 +23,7 @@
             {%- elif print_status == "submitted" %}Photo envoyée à l'imprimante. L'impression physique n'est pas confirmée.
             {%- elif print_status == "duplicate" %}Cette photo a déjà été envoyée à l'imprimante.
             {%- elif print_status == "unknown" %}L'envoi n'a pas pu être confirmé. Vérifiez auprès de l'équipe avant de réessayer.
+            {%- elif print_status == "unavailable" %}Imprimante indisponible.
             {%- elif print_status == "disabled" %}L'impression est désactivée sur cet appareil.
             {%- elif print_status == "error" %}L'impression n'a pas pu être effectuée.
             {%- endif -%}

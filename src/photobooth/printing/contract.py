@@ -15,12 +15,26 @@ class PrintError(Exception):
         self.uncertain = uncertain
 
 
+class PrinterUnavailableError(PrintError):
+    """Report a known or unverifiable physical-printer availability failure."""
+
+
 class PrintStatus(str, Enum):
-    """Describe whether a job was submitted, duplicated, or not physically printed."""
+    """Describe whether a job was submitted, duplicated, or unavailable."""
 
     SUBMITTED = "submitted"
     PLACEHOLDER = "placeholder"
     DUPLICATE = "duplicate"
+    UNKNOWN = "unknown"
+    UNAVAILABLE = "unavailable"
+
+
+class PhysicalPrinterStatus(str, Enum):
+    """Describe USB presence independently from CUPS queue availability."""
+
+    NOT_CHECKED = "not-checked"
+    CONNECTED = "connected"
+    NOT_DETECTED = "not-detected"
     UNKNOWN = "unknown"
 
 

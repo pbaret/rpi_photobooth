@@ -153,8 +153,20 @@ queue. Check the service and queue with:
     lpoptions -p <configured-queue> -l
 
 Admin > Printing reports command availability, discovered queues, selected
-queue status and the effective allowlisted profile. If an option is reported
-unsupported, select a value advertised by that queue before saving.
+queue status, physical USB presence and the effective allowlisted profile. A
+configured queue can remain available while its printer is disconnected.
+With CUPS selected, the application checks `lsusb` immediately before each
+print and in protected Admin diagnostics. The observed Canon SELPHY CP1000
+identity is USB vendor/product `04a9:32ae`; other Canon USB devices do not
+count. If detection is unknown or the device is absent, REVIEW reports
+“Imprimante indisponible” and no CUPS job is queued. Ensure `lsusb` is
+installed and the printer is powered on and connected. The application does
+not install system packages or modify USB/CUPS configuration.
+
+USB presence confirms only that the expected device is visible to the Pi. It
+does not report paper, dye/ribbon or jam status and does not prove that a
+physical print completed. If an option is reported unsupported, select a
+value advertised by that queue before saving.
 
 The participant screen confirms that a job was sent to CUPS, not that paper
 physically emerged. CUPS `completed` status is likewise not independent

@@ -18,7 +18,13 @@ from photobooth.config import (
     load_configuration,
     save_configuration,
 )
-from photobooth.printing.contract import PrintError, PrintJobState, PrintStatus
+from photobooth.printing.contract import (
+    PhysicalPrinterStatus,
+    PrintError,
+    PrintJobState,
+    PrintStatus,
+    PrinterUnavailableError,
+)
 from photobooth.printing.cups import CupsPrinterBackend, QueueStatus
 from photobooth.printing.process import (
     PrintCommandResult,
@@ -65,6 +71,9 @@ class FakePrintRunner:
         self.pending_jobs = ""
         self.completed_jobs = ""
         self.lp_output = "request id is Canon_CP1000-42 (1 file(s))"
+        self.usb_output = (
+            "Bus 001 Device 006: ID 04a9:32ae Canon, Inc. Canon SELPHY CP1000"
+        )
         self.lp_returncode = 0
         self.missing_executables: set[str] = set()
         self.timed_out_executables: set[str] = set()
@@ -81,6 +90,8 @@ class FakePrintRunner:
         self.calls.append(tuple(args))
         if command in self.timed_out_executables:
             raise PrintProcessTimeoutError("fake timeout")
+        if command == "lsusb":
+            return PrintCommandResult(0, self.usb_output, "")
         if command == "lp":
             if self.lp_returncode:
                 return PrintCommandResult(self.lp_returncode, "", "bounded fake error")
@@ -190,6 +201,70 @@ def test_queue_discovery_status_and_capability_parsing() -> None:
     assert "StpFineBrightness" not in diagnostics.capabilities
 
 
+@pytest.mark.parametrize(
+    ("usb_output", "expected"),
+    [
+        (
+            "Bus 001 Device 006: ID 04a9:32ae Canon, Inc. Canon SELPHY CP1000",
+            PhysicalPrinterStatus.CONNECTED,
+        ),
+        (
+            "Bus 001 Device 006: ID 04a9:30f5 Canon, Inc. SELPHY CP500",
+            PhysicalPrinterStatus.NOT_DETECTED,
+        ),
+        (
+            "Bus 001 Device 006: ID 046d:c534 Logitech, Inc. Nano Receiver",
+            PhysicalPrinterStatus.NOT_DETECTED,
+        ),
+        (
+            "Bus 001 Device 004: ID 046d:c534 Logitech, Inc. Nano Receiver\n"
+            "Bus 001 Device 006: ID 04a9:32ae Canon, Inc. Canon SELPHY CP1000",
+            PhysicalPrinterStatus.CONNECTED,
+        ),
+    ],
+)
+def test_usb_presence_requires_exact_cp1000_identity(
+    usb_output: str,
+    expected: PhysicalPrinterStatus,
+) -> None:
+    """Only the observed Canon 04a9:32ae device counts as the CP1000."""
+    runner = FakePrintRunner()
+    runner.usb_output = usb_output
+
+    diagnostics = CupsPrinterBackend(_cups_settings(), runner).get_diagnostics()
+
+    assert diagnostics.physical_printer_status is expected
+    assert diagnostics.physical_printer_error is None
+
+
+@pytest.mark.parametrize(
+    ("usb_output", "missing", "timed_out"),
+    [
+        ("not lsusb output", False, False),
+        ("", True, False),
+        ("", False, True),
+    ],
+    ids=("malformed", "lsusb-missing", "lsusb-timeout"),
+)
+def test_usb_detection_unknown_states_fail_closed(
+    usb_output: str,
+    missing: bool,
+    timed_out: bool,
+) -> None:
+    """Missing, timed-out or malformed USB discovery is never treated as present."""
+    runner = FakePrintRunner()
+    runner.usb_output = usb_output
+    if missing:
+        runner.missing_executables.add("lsusb")
+    if timed_out:
+        runner.timed_out_executables.add("lsusb")
+
+    diagnostics = CupsPrinterBackend(_cups_settings(), runner).get_diagnostics()
+
+    assert diagnostics.physical_printer_status is PhysicalPrinterStatus.UNKNOWN
+    assert diagnostics.physical_printer_error is not None
+
+
 def test_empty_missing_disabled_and_unavailable_queues_are_distinguished() -> None:
     """Queue discovery distinguishes empty service, missing queue and disabled queue."""
     runner = FakePrintRunner()
@@ -251,6 +326,60 @@ def test_successful_submission_uses_managed_jpeg_and_exact_option_arguments() ->
     assert "-o" in lp_call
     assert "StpiShrinkOutput=Shrink" in lp_call
     assert "StpBrightness=None" in lp_call
+
+
+@pytest.mark.parametrize(
+    ("usb_output", "missing", "timed_out"),
+    [
+        ("Bus 001 Device 006: ID 046d:c534 Logitech, Inc. Nano Receiver", False, False),
+        ("Bus 001 Device 006: ID 046d:c534 Logitech, Inc. Nano Receiver", False, False),
+        ("Bus 001 Device 006: ID 04a9:30f5 Canon, Inc. SELPHY CP500", False, False),
+        ("", True, False),
+        ("", False, True),
+        ("malformed lsusb output", False, False),
+    ],
+    ids=(
+        "powered-off",
+        "unplugged",
+        "other-canon-printer",
+        "lsusb-missing",
+        "lsusb-timeout",
+        "malformed-output",
+    ),
+)
+def test_submission_stops_before_lp_without_cp1000(
+    usb_output: str,
+    missing: bool,
+    timed_out: bool,
+) -> None:
+    """A persistent usable queue cannot submit unless the exact CP1000 is on USB."""
+    runner = FakePrintRunner()
+    runner.usb_output = usb_output
+    if missing:
+        runner.missing_executables.add("lsusb")
+    if timed_out:
+        runner.timed_out_executables.add("lsusb")
+
+    with pytest.raises(PrinterUnavailableError):
+        CupsPrinterBackend(_cups_settings(), runner).print_photo(
+            _jpeg_bytes(), "photo-identity"
+        )
+
+    assert not _calls_for(runner, "lp")
+
+
+def test_missing_queue_stops_before_usb_discovery() -> None:
+    """Queue validation remains ahead of physical-presence discovery."""
+    runner = FakePrintRunner()
+    runner.queues = ("Other",)
+
+    with pytest.raises(PrintError, match="queue was not found"):
+        CupsPrinterBackend(_cups_settings(), runner).print_photo(
+            _jpeg_bytes(), "photo-identity"
+        )
+
+    assert not _calls_for(runner, "lsusb")
+    assert not _calls_for(runner, "lp")
 
 
 def test_invalid_jpeg_and_disabled_queue_are_not_submitted() -> None:
@@ -429,6 +558,10 @@ def test_null_backend_never_invokes_cups() -> None:
 
     assert result.status is PrintStatus.PLACEHOLDER
     assert runner.calls == []
+    assert service.get_admin_diagnostics().cups.physical_printer_status is (
+        PhysicalPrinterStatus.NOT_CHECKED
+    )
+    assert not _calls_for(runner, "lsusb")
 
 
 def test_disabled_printing_disables_review_control(tmp_path: Path) -> None:
@@ -483,6 +616,9 @@ def test_admin_renders_live_queue_choices_without_exposing_driver_extras(
     assert b"Canon_CP1000" in response.data
     assert b"canon-cp1000" in response.data
     assert b"available" in response.data
+    assert b"Physical printer" in response.data
+    assert b"connected" in response.data
+    assert b"04a9:32ae" not in response.data
     assert (
         b'<option value="None" selected>Par d\xc3\xa9faut / neutre</option>'
         in response.data
@@ -491,6 +627,68 @@ def test_admin_renders_live_queue_choices_without_exposing_driver_extras(
     assert b"Cyan" not in response.data
     assert b"Custom.REAL" not in response.data
     assert not _calls_for(runner, "lp")
+    preview = cast(PreviewService, app.extensions["photobooth.preview"])
+    preview.close()
+
+
+@pytest.mark.parametrize(
+    ("usb_output", "missing", "timed_out", "expected"),
+    [
+        (
+            "Bus 001 Device 006: ID 046d:c534 Logitech, Inc. Nano Receiver",
+            False,
+            False,
+            b"not-detected",
+        ),
+        ("unexpected lsusb output", False, False, b"unknown"),
+        ("", True, False, b"unknown"),
+        ("", False, True, b"unknown"),
+    ],
+    ids=(
+        "disconnected",
+        "malformed-unknown",
+        "missing-lsusb-unknown",
+        "timeout-unknown",
+    ),
+)
+def test_admin_reports_queue_and_physical_status_independently(
+    tmp_path: Path,
+    usb_output: str,
+    missing: bool,
+    timed_out: bool,
+    expected: bytes,
+) -> None:
+    """Protected diagnostics show queue availability separately from USB presence."""
+    runner = FakePrintRunner()
+    runner.usb_output = usb_output
+    if missing:
+        runner.missing_executables.add("lsusb")
+    if timed_out:
+        runner.timed_out_executables.add("lsusb")
+    configuration = ApplicationConfig(
+        startup=StartupConfig(
+            data_root=tmp_path / "data",
+            admin_secret="admin-secret",
+        ),
+        booth=BoothSettings(),
+        config_path=tmp_path / "config.json",
+        printing=_cups_settings(),
+    )
+    app = create_app(configuration=configuration, print_process_runner=runner)
+    credential = base64.b64encode(b"admin:admin-secret").decode("ascii")
+
+    response = app.test_client().get(
+        "/admin", headers={"Authorization": f"Basic {credential}"}
+    )
+
+    assert response.status_code == 200
+    assert b"CUPS service" in response.data
+    assert b"Canon_CP1000" in response.data
+    assert b"Queue status" in response.data
+    assert b"available" in response.data
+    assert b"Physical printer" in response.data
+    assert expected in response.data
+    assert b"04a9:32ae" not in response.data
     preview = cast(PreviewService, app.extensions["photobooth.preview"])
     preview.close()
 
@@ -529,6 +727,61 @@ def test_review_route_keeps_photo_and_blocks_repeated_cups_submission(
     review = client.get(repeated.headers["Location"])
     assert review.status_code == 200
     assert b"Cette photo a d\xc3\xa9j\xc3\xa0 \xc3\xa9t\xc3\xa9 envoy\xc3\xa9e" in review.data
+    assert len(_calls_for(runner, "lp")) == 1
+    preview = cast(PreviewService, app.extensions["photobooth.preview"])
+    preview.close()
+
+
+def test_review_shows_unavailable_and_allows_retry_after_reconnection(
+    tmp_path: Path,
+) -> None:
+    """Missing USB presence keeps REVIEW usable and does not reserve a job ID."""
+    runner = FakePrintRunner()
+    runner.usb_output = (
+        "Bus 001 Device 004: ID 046d:c534 Logitech, Inc. Nano Receiver"
+    )
+    configuration = ApplicationConfig(
+        startup=StartupConfig(data_root=tmp_path / "data"),
+        booth=BoothSettings(countdown_seconds=0),
+        config_path=tmp_path / "config.json",
+        printing=_cups_settings(),
+    )
+    app = create_app(
+        configuration=configuration,
+        camera_backend=SyntheticCameraBackend(),
+        print_process_runner=runner,
+    )
+    client = app.test_client()
+    capture = client.post("/capture")
+    assert capture.status_code == 200
+    payload = capture.get_json()
+    assert isinstance(payload, dict)
+    review_path = cast(dict[str, object], payload).get("review_url")
+    assert isinstance(review_path, str)
+    photo_id = review_path.rsplit("/", maxsplit=1)[-1]
+
+    unavailable = client.post(f"/review/{photo_id}/print")
+    assert unavailable.status_code == 303
+    assert f"/review/{photo_id}?print_status=unavailable" in unavailable.headers["Location"]
+    assert not _calls_for(runner, "lp")
+
+    review = client.get(unavailable.headers["Location"])
+    assert review.status_code == 200
+    assert "Imprimante indisponible.".encode("utf-8") in review.data
+    assert b'id="print-button"' in review.data
+    assert b"disabled>Imprimer</button>" not in review.data
+    service = cast(PrintingService, app.extensions["photobooth.printer"])
+    unavailable_result = service.get_admin_diagnostics().latest_result
+    assert unavailable_result is not None
+    assert unavailable_result.status is PrintStatus.UNAVAILABLE
+    assert unavailable_result.job_id is None
+
+    runner.usb_output = (
+        "Bus 001 Device 006: ID 04a9:32ae Canon, Inc. Canon SELPHY CP1000"
+    )
+    submitted = client.post(f"/review/{photo_id}/print")
+
+    assert submitted.status_code == 303
     assert len(_calls_for(runner, "lp")) == 1
     preview = cast(PreviewService, app.extensions["photobooth.preview"])
     preview.close()

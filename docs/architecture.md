@@ -777,6 +777,22 @@ and neutral brightness, contrast, saturation and gamma. The neutral model
 value is Python `None`; the mapper emits the driver's literal `None` choice.
 Only allowlisted option names and reported values are passed to CUPS.
 
+The configured queue is not evidence that the physical printer is connected.
+Before each CUPS submission, and when protected Admin diagnostics are opened
+with CUPS selected, `lsusb` is run through the bounded process runner. The
+backend matches the observed Canon vendor/product pair `04a9:32ae`, reported
+by the connected SELPHY CP1000 on the target system; it does not match other
+Canon devices or lock to a serial number. Missing `lsusb`, a timeout, or
+unparseable output is an unknown physical state and blocks submission. A
+missing USB device reports “Imprimante indisponible” on REVIEW without
+creating a CUPS job, and the same photo can be retried after reconnection.
+NullPrinterBackend does not require or run `lsusb`.
+
+USB presence confirms only that the expected device is visible to the Pi. It
+does not establish that paper or dye/ribbon is available, detect jams, or
+confirm physical output. CUPS queue and job status remain separate diagnostics;
+no unsupported paper or consumable state is inferred from them.
+
 Repeated print requests for the same photo are blocked in application memory
 for the lifetime of the print service. A participant-facing reprint operation
 is not provided; a newly captured photo has a new identifier and can be

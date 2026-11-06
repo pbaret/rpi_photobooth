@@ -312,10 +312,15 @@
             <dt>Managed photos</dt><dd>{{ photo_count if photo_count is not none else 'Unavailable' }}</dd>
             <dt>Public base URL</dt><dd>{{ persisted.startup.public_base_url or 'Not configured' }}</dd>
             <dt>Printer backend</dt><dd>{{ printer_name }}</dd>
+            <dt>CUPS service</dt><dd>{{ 'Available' if printing_diagnostics.cups.cups_available else 'Unavailable' }}</dd>
             <dt>lp available</dt><dd>{{ 'Yes' if printing_diagnostics.cups.lp_available else 'No' }}</dd>
             <dt>lpstat available</dt><dd>{{ 'Yes' if printing_diagnostics.cups.lpstat_available else 'No' }}</dd>
             <dt>lpoptions available</dt><dd>{{ 'Yes' if printing_diagnostics.cups.lpoptions_available else 'No' }}</dd>
             <dt>Detected queues</dt><dd>{{ printing_diagnostics.cups.queues|join(', ') or 'None' }}</dd>
+            <dt>Configured queue</dt><dd>{{ persisted.printing.queue_name or 'Not configured' }}</dd>
+            <dt>Queue status</dt><dd>{{ printing_diagnostics.cups.queue_status.value }}</dd>
+            <dt>Physical printer</dt><dd>Canon SELPHY CP1000 — {{ printing_diagnostics.cups.physical_printer_status.value }}</dd>
+            {% if printing_diagnostics.cups.physical_printer_error %}<dt>Physical detection detail</dt><dd>{{ printing_diagnostics.cups.physical_printer_error }}</dd>{% endif %}
             <dt>Queue description</dt><dd>{{ printing_diagnostics.cups.queue_description or 'Not reported' }}</dd>
             <dt>Detected queue model</dt><dd>{{ printing_diagnostics.cups.queue_model or 'Not reported' }}</dd>
             <dt>Effective print profile</dt>

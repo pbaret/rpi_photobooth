@@ -9,6 +9,7 @@ from photobooth.printing.contract import (
     PrintJobState,
     PrintResult,
     PrintStatus,
+    PrinterUnavailableError,
     PrinterBackend,
 )
 from photobooth.printing.cups import CupsDiagnostics, CupsPrinterBackend
@@ -104,6 +105,16 @@ class PrintingService:
                 return self._latest_result
             try:
                 result = self._active_backend.print_photo(image_data, idempotency_key)
+            except PrinterUnavailableError as error:
+                _LOGGER.warning("CUPS printer unavailable for submission: %s", error)
+                result = PrintResult(
+                    status=PrintStatus.UNAVAILABLE,
+                    queue_name=self._settings.queue_name or None,
+                    status_text="Imprimante indisponible.",
+                )
+                self._latest_result = result
+                self._last_submission_error = str(error)[:200]
+                return result
             except PrintError as error:
                 if error.uncertain:
                     result = PrintResult(

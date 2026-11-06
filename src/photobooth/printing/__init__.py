@@ -1,10 +1,12 @@
 """Provide application-level printer abstractions and CUPS integration."""
 
 from photobooth.printing.contract import (
+    PhysicalPrinterStatus,
     PrintError,
     PrintJobState,
     PrintResult,
     PrinterBackend,
+    PrinterUnavailableError,
     PrintStatus,
 )
 from photobooth.printing.cups import CupsPrinterBackend
@@ -15,11 +17,13 @@ from photobooth.printing.settings import PrintingSettings
 __all__ = [
     "CupsPrinterBackend",
     "NullPrinterBackend",
+    "PhysicalPrinterStatus",
     "PrintError",
     "PrintJobState",
     "PrintResult",
     "PrinterBackend",
     "PrintingService",
     "PrintingSettings",
+    "PrinterUnavailableError",
     "PrintStatus",
 ]
