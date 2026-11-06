@@ -15,5 +15,23 @@
     "idle_timeout_seconds": 120,
     "slideshow_enabled": true,
     "slideshow_interval_seconds": 5
+  },
+  "printing": {
+    "enabled": true,
+    "backend": "null",
+    "queue_name": "",
+    "page_size": "Postcard",
+    "color_model": "RGB",
+    "resolution": "300dpi",
+    "image_type": "Photo",
+    "borderless": true,
+    "page_fit": "Shrink",
+    "color_precision": "Normal",
+    "color_correction": "None",
+    "legacy_dyesub_gamma": false,
+    "brightness": null,
+    "contrast": null,
+    "saturation": null,
+    "gamma": null
   }
 }

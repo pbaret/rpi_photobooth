@@ -328,6 +328,129 @@ def test_opencv_admin_exposes_only_declared_controls(tmp_path: Path) -> None:
     _close_preview(app)
 
 
+def test_admin_exposes_only_allowlisted_printing_controls(tmp_path: Path) -> None:
+    """Printing offers the four intended adjustments and no test or channel action."""
+    app = _app(tmp_path)
+    client = app.test_client()
+
+    response = client.get("/admin", headers=_auth_header("deployment-secret"))
+
+    assert response.status_code == 200
+    for field in (
+        "printing_enabled",
+        "printer_backend",
+        "cups_printer_name",
+        "print_page_size",
+        "print_color_model",
+        "print_resolution",
+        "print_image_type",
+        "print_borderless",
+        "print_page_fit",
+        "print_color_precision",
+        "print_color_correction",
+        "print_legacy_dyesub_gamma",
+        "print_brightness",
+        "print_contrast",
+        "print_saturation",
+        "print_gamma",
+    ):
+        assert f'name="{field}"'.encode() in response.data
+    assert b"Par d\xc3\xa9faut / neutre" in response.data
+    assert b"StpFine" not in response.data
+    assert b"Cyan" not in response.data
+    assert b"print-test" not in response.data
+    assert b"Print test" not in response.data
+    _close_preview(app)
+
+
+def test_valid_printing_settings_persist_without_submitting_a_job(
+    tmp_path: Path,
+) -> None:
+    """Safe queue selection and print profile values persist through config storage."""
+    app = _app(tmp_path)
+    client = app.test_client()
+    form = _form(
+        printing_settings_present="true",
+        printing_enabled="true",
+        printer_backend="null",
+        cups_printer_name="Canon_CP1000",
+        print_page_size="Postcard",
+        print_color_model="RGB",
+        print_resolution="300dpi",
+        print_image_type="Photo",
+        print_borderless="true",
+        print_page_fit="Shrink",
+        print_color_precision="Normal",
+        print_color_correction="None",
+        print_legacy_dyesub_gamma="false",
+        print_brightness="neutral",
+        print_contrast="neutral",
+        print_saturation="neutral",
+        print_gamma="neutral",
+    )
+
+    response = client.post(
+        "/admin/settings", data=form, headers=_auth_header("deployment-secret")
+    )
+
+    assert response.status_code == 303
+    persisted = cast(
+        ApplicationConfig, app.extensions["photobooth.persisted_configuration"]
+    )
+    effective = cast(ApplicationConfig, app.extensions["photobooth.configuration"])
+    assert persisted.printing.queue_name == "Canon_CP1000"
+    assert persisted.printing.brightness is None
+    assert effective.printing == persisted.printing
+    stored = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
+    assert stored["printing"]["queue_name"] == "Canon_CP1000"
+    assert stored["printing"]["brightness"] is None
+    _close_preview(app)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("cups_printer_name", "queue -o PageSize=bad"),
+        ("print_brightness", "1000"),
+        ("cups_option_anything", "arbitrary"),
+    ],
+)
+def test_invalid_printing_settings_do_not_persist(
+    tmp_path: Path, field: str, value: str
+) -> None:
+    """Unsafe queue names, unsupported values, and raw options fail atomically."""
+    app = _app(tmp_path)
+    client = app.test_client()
+    form = _form(
+        printing_settings_present="true",
+        printing_enabled="true",
+        printer_backend="null",
+        cups_printer_name="Canon_CP1000",
+        print_page_size="Postcard",
+        print_color_model="RGB",
+        print_resolution="300dpi",
+        print_image_type="Photo",
+        print_borderless="true",
+        print_page_fit="Shrink",
+        print_color_precision="Normal",
+        print_color_correction="None",
+        print_legacy_dyesub_gamma="false",
+        print_brightness="neutral",
+        print_contrast="neutral",
+        print_saturation="neutral",
+        print_gamma="neutral",
+    )
+    form[field] = value
+
+    response = client.post(
+        "/admin/settings", data=form, headers=_auth_header("deployment-secret")
+    )
+
+    assert response.status_code == 400
+    assert not (tmp_path / "config.json").exists()
+    _close_preview(app)
+
+
 def test_blank_url_is_allowed_and_invalid_url_is_reported(tmp_path: Path) -> None:
     """URL validation is server-side and a blank optional value remains valid."""
     client = _app(tmp_path).test_client()

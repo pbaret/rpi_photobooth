@@ -20,7 +20,10 @@
           <img src="{{ photo_url }}" alt="Photo capturée">
           <p class="status" role="status" aria-live="polite">
             {%- if print_status == "placeholder" %}Impression non configurée sur cet appareil.
-            {%- elif print_status == "submitted" %}Demande d'impression envoyée.
+            {%- elif print_status == "submitted" %}Photo envoyée à l'imprimante. L'impression physique n'est pas confirmée.
+            {%- elif print_status == "duplicate" %}Cette photo a déjà été envoyée à l'imprimante.
+            {%- elif print_status == "unknown" %}L'envoi n'a pas pu être confirmé. Vérifiez auprès de l'équipe avant de réessayer.
+            {%- elif print_status == "disabled" %}L'impression est désactivée sur cet appareil.
             {%- elif print_status == "error" %}L'impression n'a pas pu être effectuée.
             {%- endif -%}
           </p>
@@ -47,7 +50,8 @@
               <button class="btn btn-primary" type="submit">Nouvelle Photo</button>
             </form>
             <form id="print-form" action="{{ url_for('booth.print_photo', photo_id=photo.photo_id) }}" method="post">
-              <button class="btn btn-secondary" id="print-button" type="submit">Imprimer</button>
+              <button class="btn btn-secondary" id="print-button" type="submit"
+                {% if not printing_enabled or print_status in ["submitted", "duplicate", "unknown", "disabled"] %}disabled{% endif %}>Imprimer</button>
             </form>
             <form action="{{ url_for('booth.delete_photo', photo_id=photo.photo_id) }}" method="post"
               onsubmit="return window.confirm('Supprimer définitivement cette photo ?')">

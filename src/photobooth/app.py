@@ -13,7 +13,8 @@ from photobooth.config import (
     CameraBackend as CameraBackendKind,
     load_configuration,
 )
-from photobooth.printing import NullPrinterBackend, PrinterBackend
+from photobooth.printing import PrinterBackend, PrintingService
+from photobooth.printing.process import PrintProcessRunner
 from photobooth.routes.admin import admin_blueprint
 from photobooth.routes.booth import booth_blueprint
 from photobooth.routes.downloads import downloads_blueprint
@@ -34,6 +35,7 @@ def create_app(
     gallery_service: GalleryService | None = None,
     printer_backend: PrinterBackend | None = None,
     theme: ThemeSettings | None = None,
+    print_process_runner: PrintProcessRunner | None = None,
 ) -> Flask:
     """Build the Flask app, select its camera, and register its HTTP adapters.
 
@@ -61,7 +63,11 @@ def create_app(
         if gallery_service is not None
         else GalleryService(active_configuration.startup.data_root)
     )
-    active_printer = printer_backend if printer_backend is not None else NullPrinterBackend()
+    active_printer = PrintingService(
+        active_configuration.printing,
+        backend_override=printer_backend,
+        process_runner=print_process_runner,
+    )
     app = Flask(__name__)
     app.config["DEBUG"] = active_configuration.startup.debug
     app.config["MAX_CONTENT_LENGTH"] = _MAX_REQUEST_BYTES

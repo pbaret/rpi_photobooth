@@ -12,7 +12,7 @@ import pytest
 from photobooth.app import create_app
 from photobooth.camera.synthetic import SyntheticCameraBackend
 from photobooth.config import ApplicationConfig, BoothSettings, StartupConfig
-from photobooth.printing.contract import PrintStatus
+from photobooth.printing.contract import PrintResult, PrintStatus
 from photobooth.services.gallery import (
     GalleryMetadataError,
     GalleryService,
@@ -132,10 +132,16 @@ def test_capture_review_print_retake_and_delete_routes(tmp_path: Path) -> None:
         def __init__(self) -> None:
             self.images: list[bytes] = []
 
-        def print_photo(self, image_data: bytes) -> PrintStatus:
+        def print_photo(self, image_data: bytes, idempotency_key: str) -> PrintResult:
             """Retain submitted bytes for assertions, without hardware."""
             self.images.append(image_data)
-            return PrintStatus.SUBMITTED
+            del idempotency_key
+            return PrintResult(
+                status=PrintStatus.SUBMITTED,
+                queue_name="test-queue",
+                job_id="test-queue-1",
+                status_text="submitted",
+            )
 
     printer = RecordingPrinter()
     configuration = ApplicationConfig(
@@ -157,7 +163,7 @@ def test_capture_review_print_retake_and_delete_routes(tmp_path: Path) -> None:
     printed = client.post(f"/review/{photo_id}/print")
     assert printed.status_code == 303
     assert f"/review/{photo_id}?print_status=submitted" in printed.headers["Location"]
-    assert b"Demande d'impression envoy\xc3\xa9e" in client.get(printed.headers["Location"]).data
+    assert b"Photo envoy\xc3\xa9e \xc3\xa0 l'imprimante" in client.get(printed.headers["Location"]).data
     assert len(printer.images) == 1
 
     retaken = client.post(f"/review/{photo_id}/retake")

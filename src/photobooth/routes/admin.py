@@ -30,7 +30,21 @@ from photobooth.camera import (
 	ValidatedCameraSetting,
 	validate_camera_setting,
 )
-from photobooth.printing import PrinterBackend
+from photobooth.printing import PrintError, PrintingService
+from photobooth.printing.settings import (
+	ColorCorrection,
+	ColorModel,
+	ColorPrecision,
+	ImageType,
+	PageFit,
+	PageSize,
+	PrinterBackendKind,
+	PrintSettingsError,
+	PrintingSettings,
+	Resolution,
+	printing_settings_from_mapping,
+	supported_adjustments,
+)
 from photobooth.services.backgrounds import (
 	BackgroundError,
 	BackgroundService,
@@ -183,7 +197,17 @@ def update_settings() -> ResponseReturnValue:
 				raw_values, "slideshow_interval_seconds"
 			),
 		)
-		updated = ApplicationConfig(startup, booth, persisted.config_path)
+		printing = _printing_settings(raw_values, persisted.printing)
+		printer = cast(
+			PrintingService, current_app.extensions["photobooth.printer"]
+		)
+		try:
+			printer.validate_settings(printing)
+		except PrintError as error:
+			raise ConfigurationError(str(error)) from error
+		updated = ApplicationConfig(
+			startup, booth, persisted.config_path, printing=printing
+		)
 	except (ConfigurationError, ValueError) as error:
 		field = _error_field(str(error))
 		errors = {field: str(error)}
@@ -192,6 +216,7 @@ def update_settings() -> ResponseReturnValue:
 			errors,
 			status=400,
 			camera_values=_camera_form_values(raw_values),
+			printing_values=_printing_form_values(raw_values, persisted.printing),
 		)
 
 	try:
@@ -202,6 +227,7 @@ def update_settings() -> ResponseReturnValue:
 			{"form": "Settings could not be saved. The previous configuration remains active."},
 			status=500,
 			camera_values=_camera_form_values(raw_values),
+			printing_values=_printing_form_values(raw_values, persisted.printing),
 		)
 
 	active_camera_settings = dict(effective.startup.camera_settings)
@@ -215,12 +241,18 @@ def update_settings() -> ResponseReturnValue:
 			applied_value = camera.apply_setting(setting)
 			active_camera_settings[setting.identifier] = applied_value
 	current_app.extensions["photobooth.persisted_configuration"] = updated
+	printer.configure(updated.printing)
 	effective_startup = replace(
 		updated.startup,
 		camera_backend=effective.startup.camera_backend,
 		camera_settings=active_camera_settings,
 	)
-	active = ApplicationConfig(effective_startup, updated.booth, updated.config_path)
+	active = ApplicationConfig(
+		effective_startup,
+		updated.booth,
+		updated.config_path,
+		printing=updated.printing,
+	)
 	current_app.extensions["photobooth.configuration"] = active
 	gallery = cast(GalleryService, current_app.extensions["photobooth.gallery"])
 	current_app.extensions["photobooth.downloads"] = DownloadService(
@@ -293,6 +325,7 @@ def _render_admin(
 	status: int = 200,
 	camera_values: dict[str, str] | None = None,
 	theme_values: dict[str, str] | None = None,
+	printing_values: dict[str, str | bool] | None = None,
 ) -> ResponseReturnValue:
 	"""Render one admin response without exposing deployment or filesystem data.
 
@@ -302,7 +335,8 @@ def _render_admin(
 	persisted = _persisted_configuration()
 	effective = _effective_configuration()
 	gallery = cast(GalleryService, current_app.extensions["photobooth.gallery"])
-	printer = cast(PrinterBackend, current_app.extensions["photobooth.printer"])
+	printer = cast(PrintingService, current_app.extensions["photobooth.printer"])
+	printing_diagnostics = printer.get_admin_diagnostics()
 	camera = cast(CameraBackend, current_app.extensions["photobooth.camera"])
 	theme = cast(ThemeSettings, current_app.extensions["photobooth.theme"])
 	backgrounds = cast(BackgroundService, current_app.extensions["photobooth.backgrounds"])
@@ -349,8 +383,19 @@ def _render_admin(
 		camera_restart_required=camera_restart_required,
 		camera_capabilities=camera_controls,
 		camera_values=camera_values or {},
+		printing_values=(
+			printing_values
+			if printing_values is not None
+			else _printing_form_values({}, persisted.printing)
+		),
+		printing_diagnostics=printing_diagnostics,
+		printing_options=_printing_options(
+			persisted.printing,
+			printing_diagnostics.cups.queues,
+			printing_diagnostics.cups.capabilities,
+		),
 		photo_count=photo_count,
-		printer_name=type(printer).__name__,
+		printer_name=printer.active_backend_name,
 		theme_saved=request.args.get("saved") == "theme",
 		theme_values=theme_values if theme_values is not None else _theme_form_values(theme),
 		background_choices=background_choices,
@@ -490,6 +535,179 @@ def _submitted_values(
 	}
 
 
+def _printing_settings(
+	raw_values: dict[str, str], current: PrintingSettings
+) -> PrintingSettings:
+	"""Parse only declared printer controls and reject arbitrary option fields."""
+	if any(name.startswith("cups_option_") for name in raw_values):
+		raise ConfigurationError("arbitrary CUPS options are not supported")
+	if raw_values.get("printing_settings_present") != "true":
+		return current
+	values = current.to_mapping()
+	values.update(
+		{
+			"enabled": raw_values.get("printing_enabled") == "true",
+			"backend": raw_values.get("printer_backend", current.backend.value),
+			"queue_name": raw_values.get("cups_printer_name", current.queue_name),
+			"page_size": raw_values.get("print_page_size", current.page_size.value),
+			"color_model": raw_values.get("print_color_model", current.color_model.value),
+			"resolution": raw_values.get("print_resolution", current.resolution.value),
+			"image_type": raw_values.get("print_image_type", current.image_type.value),
+			"borderless": raw_values.get("print_borderless") == "true",
+			"page_fit": raw_values.get("print_page_fit", current.page_fit.value),
+			"color_precision": raw_values.get(
+				"print_color_precision", current.color_precision.value
+			),
+			"color_correction": raw_values.get(
+				"print_color_correction", current.color_correction.value
+			),
+			"legacy_dyesub_gamma": raw_values.get("print_legacy_dyesub_gamma") == "true",
+		}
+	)
+	for field_name, form_name in (
+		("brightness", "print_brightness"),
+		("contrast", "print_contrast"),
+		("saturation", "print_saturation"),
+		("gamma", "print_gamma"),
+	):
+		raw_value = raw_values.get(
+			form_name,
+			"neutral" if getattr(current, field_name) is None else str(getattr(current, field_name)),
+		)
+		if raw_value == "neutral":
+			values[field_name] = None
+		else:
+			try:
+				values[field_name] = int(raw_value)
+			except ValueError as error:
+				raise ConfigurationError(f"{field_name} must be a supported driver value") from error
+	try:
+		return printing_settings_from_mapping(values)
+	except PrintSettingsError as error:
+		raise ConfigurationError(str(error)) from error
+
+
+def _printing_form_values(
+	raw_values: dict[str, str], settings: PrintingSettings
+) -> dict[str, str | bool]:
+	"""Flatten validated print settings and preserve rejected form text."""
+	defaults: dict[str, str | bool] = {
+		"printing_enabled": settings.enabled,
+		"printer_backend": settings.backend.value,
+		"cups_printer_name": settings.queue_name,
+		"print_page_size": settings.page_size.value,
+		"print_color_model": settings.color_model.value,
+		"print_resolution": settings.resolution.value,
+		"print_image_type": settings.image_type.value,
+		"print_borderless": settings.borderless,
+		"print_page_fit": settings.page_fit.value,
+		"print_color_precision": settings.color_precision.value,
+		"print_color_correction": settings.color_correction.value,
+		"print_legacy_dyesub_gamma": settings.legacy_dyesub_gamma,
+		"print_brightness": "neutral" if settings.brightness is None else str(settings.brightness),
+		"print_contrast": "neutral" if settings.contrast is None else str(settings.contrast),
+		"print_saturation": "neutral" if settings.saturation is None else str(settings.saturation),
+		"print_gamma": "neutral" if settings.gamma is None else str(settings.gamma),
+	}
+	field_names = {
+		"printing_enabled",
+		"printer_backend",
+		"cups_printer_name",
+		"print_page_size",
+		"print_color_model",
+		"print_resolution",
+		"print_image_type",
+		"print_borderless",
+		"print_page_fit",
+		"print_color_precision",
+		"print_color_correction",
+		"print_legacy_dyesub_gamma",
+		"print_brightness",
+		"print_contrast",
+		"print_saturation",
+		"print_gamma",
+	}
+	for field_name in field_names:
+		if field_name not in raw_values:
+			continue
+		if field_name in {"printing_enabled", "print_borderless", "print_legacy_dyesub_gamma"}:
+			defaults[field_name] = raw_values[field_name] == "true"
+		else:
+			defaults[field_name] = raw_values[field_name]
+	return defaults
+
+
+def _printing_options(
+	settings: PrintingSettings,
+	queues: tuple[str, ...],
+	capabilities: dict[str, tuple[str, ...]],
+) -> dict[str, list[tuple[str, str]]]:
+	"""Build safe select values, intersecting driver choices when available."""
+	def supported(option_name: str, values: tuple[str, ...]) -> list[tuple[str, str]]:
+		"""Retain only application-allowlisted values reported by the selected queue."""
+		reported = capabilities.get(option_name)
+		selected = values if reported is None else tuple(
+			value for value in values if value in reported
+		)
+		return [(value, value) for value in selected]
+
+	def correction_options() -> list[tuple[str, str]]:
+		"""Label Gutenprint neutral with operator-facing wording."""
+		return [
+			(value, "Par défaut / neutre" if value == "None" else value)
+			for value, _ in supported(
+				"StpColorCorrection",
+				tuple(item.value for item in ColorCorrection),
+			)
+		]
+
+	queue_choices = [("", "Select a CUPS queue")]
+	queue_choices.extend((queue, queue) for queue in queues)
+	if settings.queue_name and settings.queue_name not in queues:
+		queue_choices.append((settings.queue_name, f"{settings.queue_name} (not detected)"))
+	adjustment_options: dict[str, list[tuple[str, str]]] = {}
+	for field_name, option_name in (
+		("brightness", "StpBrightness"),
+		("contrast", "StpContrast"),
+		("saturation", "StpSaturation"),
+		("gamma", "StpGamma"),
+	):
+		driver_values = capabilities.get(option_name)
+		numeric_values = supported_adjustments(field_name)
+		if driver_values is not None:
+			numeric_values = tuple(
+				value for value in numeric_values if str(value) in driver_values
+			)
+			neutral_supported = "None" in driver_values
+		else:
+			neutral_supported = True
+		adjustment_options[field_name] = [
+			("neutral", "Par défaut / neutre")
+			if neutral_supported
+			else ("", "Neutral value unavailable")
+		]
+		adjustment_options[field_name].extend(
+			(str(value), str(value)) for value in numeric_values
+		)
+	return {
+		"backend": [
+			(PrinterBackendKind.NULL.value, "Null (development)"),
+			(PrinterBackendKind.CUPS.value, "CUPS"),
+		],
+		"queue": queue_choices,
+		"page_size": supported("PageSize", tuple(item.value for item in PageSize)),
+		"color_model": supported("ColorModel", tuple(item.value for item in ColorModel)),
+		"resolution": supported("Resolution", tuple(item.value for item in Resolution)),
+		"image_type": supported("StpImageType", tuple(item.value for item in ImageType)),
+		"page_fit": supported("StpiShrinkOutput", tuple(item.value for item in PageFit)),
+		"color_precision": supported(
+			"StpColorPrecision", tuple(item.value for item in ColorPrecision)
+		),
+		"color_correction": correction_options(),
+		**adjustment_options,
+	}
+
+
 def _integer_form_value(values: dict[str, str], name: str) -> int:
 	"""Parse a submitted integer and leave bounds enforcement to config models."""
 	raw_value = values.get(name, "")
@@ -515,7 +733,28 @@ def _error_field(message: str) -> str:
 		"public_base_url",
 		"download_token_lifetime_seconds",
 		"camera_backend",
+		"printing_enabled",
+		"printer_backend",
+		"cups_printer_name",
 	}
+	print_fields = {
+		"page_size": "print_page_size",
+		"color_model": "print_color_model",
+		"resolution": "print_resolution",
+		"image_type": "print_image_type",
+		"borderless": "print_borderless",
+		"page_fit": "print_page_fit",
+		"color_precision": "print_color_precision",
+		"color_correction": "print_color_correction",
+		"legacy_dyesub_gamma": "print_legacy_dyesub_gamma",
+		"brightness": "print_brightness",
+		"contrast": "print_contrast",
+		"saturation": "print_saturation",
+		"gamma": "print_gamma",
+	}
+	for setting_name, field_name in print_fields.items():
+		if message.startswith(setting_name):
+			return field_name
 	if message.startswith("camera setting "):
 		identifier = message.removeprefix("camera setting ").split(maxsplit=1)[0]
 		return f"camera_setting_{identifier}"

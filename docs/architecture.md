@@ -27,7 +27,7 @@ A Raspberry Pi 5 using:
 - Raspberry Pi Camera Module 3;
 - the operating-system `rpicam-*` applications;
 - CUPS;
-- a Canon Selphy CP740 printer;
+- a Canon SELPHY CP1000 printer;
 - a smartphone or other touch-capable browser as the primary user interface.
 
 The production environment must introduce the minimum possible amount of
@@ -752,50 +752,44 @@ That interaction is consumed and must not also trigger a photo capture.
 
 ## 18. Printer abstraction
 
-Printing uses PrinterBackend.
-
-Conceptually:
-
-    get_status() -> PrinterStatus
-
-    print_photo(
-        photo_path: Path,
-        request_id: str,
-    ) -> PrintResult
+Printing uses the typed `PrinterBackend` contract. `PrintResult` reports
+submission status, an optional queue and CUPS job identifier, and a timestamp.
+The contract accepts bytes read through `GalleryService`; browser input never
+supplies a filesystem path.
 
 ### NullPrinterBackend
 
 Used during PC development.
 
-It provides predictable behavior without contacting a printer.
+It preserves the REVIEW flow without contacting CUPS or a physical printer.
 
 ### CupsPrinterBackend
 
-Used on Raspberry Pi.
+Used when the protected printing settings select CUPS. The backend invokes
+`lp`, `lpstat` and `lpoptions` through argument arrays and a bounded finite
+process runner. It discovers queues, validates the selected queue and the
+driver-reported option choices, stages the managed JPEG bytes temporarily,
+submits one job, and parses the returned job identifier.
 
-Should not crash the booth if no printer are available.
+The Canon SELPHY CP1000 defaults are Postcard, RGB, 300dpi, Photo, Borderless,
+Shrink, Normal precision, no color correction, legacy dye-sub gamma disabled,
+and neutral brightness, contrast, saturation and gamma. The neutral model
+value is Python `None`; the mapper emits the driver's literal `None` choice.
+Only allowlisted option names and reported values are passed to CUPS.
 
-Version 1 should prefer the system CUPS command-line interface when practical:
+Repeated print requests for the same photo are blocked in application memory
+for the lifetime of the print service. A participant-facing reprint operation
+is not provided; a newly captured photo has a new identifier and can be
+printed independently. An uncertain CUPS timeout remains blocked pending
+operator review. The in-memory idempotency record does not survive an
+application restart.
 
-- lp;
-- lpstat.
+CUPS acceptance and a completed CUPS job are not independent confirmation of
+physical output. Participant feedback says the photo was sent to the printer,
+not that it is ready.
 
-The application does not require a Python CUPS dependency unless the command
-line interface proves insufficient.
-
-Print requests must be protected against accidental duplicate submission.
-The printer abstraction reports printer unavailability and print-operation
-failure through application-level results or domain errors, not CUPS objects or
-raw command output. A repeated request identifier must not submit a second
-physical print.
-
-Canon Selphy CP740 support remains unverified until tested with:
-
-- the physical printer;
-- its CUPS queue;
-- the selected driver;
-- target paper format;
-- target orientation.
+The application does not install CUPS, create queues or require a Python CUPS
+dependency. The operating system must provide CUPS and the printer's driver.
 
 ---
 
@@ -1084,7 +1078,7 @@ The Raspberry Pi phase should introduce only:
 - preview performance validation;
 - preview-to-still latency validation;
 - CUPS;
-- real Canon Selphy CP740 validation;
+- real Canon SELPHY CP1000 validation;
 - long-running hardware stability validation.
 
 ---

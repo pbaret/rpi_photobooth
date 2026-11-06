@@ -11,6 +11,12 @@ import tempfile
 from typing import cast
 from urllib.parse import urlsplit
 
+from photobooth.printing.settings import (
+    PrintSettingsError,
+    PrintingSettings,
+    printing_settings_from_mapping,
+)
+
 
 class ConfigurationError(ValueError):
     """Report invalid or unreadable application configuration."""
@@ -104,6 +110,7 @@ class ApplicationConfig:
     startup: StartupConfig
     booth: BoothSettings
     config_path: Path
+    printing: PrintingSettings = field(default_factory=PrintingSettings)
 
 
 def load_configuration(
@@ -126,7 +133,7 @@ def load_configuration(
     }
     is_legacy_document = document.keys() <= legacy_booth_keys
     if not is_legacy_document:
-        unknown_sections = document.keys() - {"startup", "booth"}
+        unknown_sections = document.keys() - {"startup", "booth", "printing"}
         if unknown_sections:
             unknown_section = sorted(unknown_sections)[0]
             raise ConfigurationError(f"unknown configuration section: {unknown_section}")
@@ -157,6 +164,28 @@ def load_configuration(
             "slideshow_interval_seconds",
         },
     )
+    printing_values = _section_values(
+        document,
+        "printing",
+        {
+            "enabled",
+            "backend",
+            "queue_name",
+            "page_size",
+            "color_model",
+            "resolution",
+            "image_type",
+            "borderless",
+            "page_fit",
+            "color_precision",
+            "color_correction",
+            "legacy_dyesub_gamma",
+            "brightness",
+            "contrast",
+            "saturation",
+            "gamma",
+        },
+    )
     data_root = Path(_string_value(startup_values, "data_root", "data"))
     startup = StartupConfig(
         bind_host=_string_value(startup_values, "bind_host", "127.0.0.1"),
@@ -181,7 +210,16 @@ def load_configuration(
             booth_values, "slideshow_interval_seconds", 5
         ),
     )
-    return ApplicationConfig(startup=startup, booth=booth, config_path=selected_path)
+    try:
+        printing = printing_settings_from_mapping(printing_values)
+    except PrintSettingsError as error:
+        raise ConfigurationError(str(error)) from error
+    return ApplicationConfig(
+        startup=startup,
+        booth=booth,
+        config_path=selected_path,
+        printing=printing,
+    )
 
 
 def save_booth_settings(config_path: Path, settings: BoothSettings) -> None:
@@ -198,6 +236,7 @@ def save_booth_settings(config_path: Path, settings: BoothSettings) -> None:
             startup=current.startup,
             booth=settings,
             config_path=config_path,
+            printing=current.printing,
         )
     )
 
@@ -211,6 +250,7 @@ def save_configuration(configuration: ApplicationConfig) -> None:
     """
     startup = configuration.startup
     settings = configuration.booth
+    printing = configuration.printing
     payload: dict[str, object] = {
         "startup": {
             "bind_host": startup.bind_host,
@@ -230,6 +270,7 @@ def save_configuration(configuration: ApplicationConfig) -> None:
             "slideshow_enabled": settings.slideshow_enabled,
             "slideshow_interval_seconds": settings.slideshow_interval_seconds,
         },
+        "printing": printing.to_mapping(),
     }
     write_json_atomically(configuration.config_path, payload)
 

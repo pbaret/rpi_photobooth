@@ -141,3 +141,22 @@ investigate the application first:
 - preview stream parsing (MJPEG frame boundaries on stdout);
 - camera ownership transition between `rpicam-vid` and `rpicam-still`;
 - settings mapping from `CameraSettings` to rpicam options.
+
+## 3. CUPS printing diagnostics
+
+The operating system must already have CUPS, a printer driver and a configured
+queue. Check the service and queue with:
+
+    lpstat -r
+    lpstat -e
+    lpstat -p <configured-queue>
+    lpoptions -p <configured-queue> -l
+
+Admin > Printing reports command availability, discovered queues, selected
+queue status and the effective allowlisted profile. If an option is reported
+unsupported, select a value advertised by that queue before saving.
+
+The participant screen confirms that a job was sent to CUPS, not that paper
+physically emerged. CUPS `completed` status is likewise not independent
+physical-output verification. Use the normal REVIEW print action for real
+printer validation; the application has no separate print-test workflow.

@@ -826,49 +826,46 @@ encrypted transport. Do not expose the application to an untrusted network.
 
 ## 21. Printing configuration
 
-### printing_enabled
+The optional `printing` JSON object is loaded with documented defaults when it
+is missing, so earlier valid configuration files remain compatible. The
+development backend defaults to `null`; select `cups` and a queue in protected
+Admin > Printing to submit jobs.
 
-Type:
+| Setting | Default | CUPS option |
+|---------|---------|-------------|
+| `enabled` | `true` | Application gate |
+| `backend` | `null` | Application backend (`null` or `cups`) |
+| `queue_name` | `""` | `lp -d` destination |
+| `page_size` | `Postcard` | `PageSize` |
+| `color_model` | `RGB` | `ColorModel` |
+| `resolution` | `300dpi` | `Resolution` |
+| `image_type` | `Photo` | `StpImageType` |
+| `borderless` | `true` | `StpBorderless` |
+| `page_fit` | `Shrink` | `StpiShrinkOutput` |
+| `color_precision` | `Normal` | `StpColorPrecision` |
+| `color_correction` | `None` | `StpColorCorrection` |
+| `legacy_dyesub_gamma` | `false` | `StpLegacyDyesubGamma` |
+| `brightness` | `null` (neutral) | `StpBrightness=None` |
+| `contrast` | `null` (neutral) | `StpContrast=None` |
+| `saturation` | `null` (neutral) | `StpSaturation=None` |
+| `gamma` | `null` (neutral) | `StpGamma=None` |
 
-    bool
+Page, color, precision, correction and layout controls use application
+allowlists intersected with choices reported for the selected queue.
+Brightness, contrast, saturation and gamma accept only the driver's discrete
+integer values; `Custom.REAL` and channel-level controls are not exposed.
+Python `null` represents neutral in configuration and is deliberately mapped
+to the Gutenprint literal `None` when submitted.
 
-Development default:
+The configured queue is validated against `lpstat`; the safe queue name is
+passed as one command argument. Every selected CUPS option and value must be
+reported by `lpoptions -p <queue> -l`. CUPS command failures are bounded and
+translated to participant-safe messages. CUPS job completion is not proof of
+physical output.
 
-    false
-
-### printer_backend
-
-Conceptual type:
-
-    PrinterBackendType
-
-Expected values:
-
-    null
-    cups
-
-Development default:
-
-    null
-
-### cups_printer_name
-
-Type:
-
-    str | None
-
-Required only when CUPS printing is enabled.
-
-The configured printer name must be validated against printers reported by
-CUPS rather than interpolated into a shell command.
-
-### print settings
-
-Paper size, orientation and printer-specific options should only be added after
-real CUPS and Canon Selphy CP740 validation.
-
-Do not encode imaginary printer compatibility into the default
-configuration.
+The target profile is validated for a Canon SELPHY CP1000 with Gutenprint.
+Queue creation and operating-system package installation remain explicit
+deployment prerequisites and are not performed by the application.
 
 ---
 

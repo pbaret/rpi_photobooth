@@ -38,10 +38,14 @@ On Raspberry Pi OS, install [uv](https://docs.astral.sh/uv/getting-started/insta
 then install the camera and printer system packages:
 
     sudo apt update
-    sudo apt install rpicam-apps printer-driver-gutenprint
+    sudo apt install rpicam-apps cups cups-client printer-driver-gutenprint
 
 From the repository directory, install the Python dependencies and start the
 application:
 
     uv sync
     uv run python -m photobooth
+
+Create and validate the Canon SELPHY CP1000 CUPS queue in the operating system
+before selecting the `cups` backend and queue in Admin > Printing. The
+application does not install printer drivers or create CUPS queues.

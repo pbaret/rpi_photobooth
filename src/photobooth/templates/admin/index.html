@@ -183,7 +183,125 @@
 
         <fieldset>
           <legend><h2>Printing</h2></legend>
-          <p>Active printer backend: {{ printer_name }}. No additional printing settings are currently supported.</p>
+          <input type="hidden" name="printing_settings_present" value="true">
+          <h3>Printer</h3>
+          <div class="fields">
+            <label for="printing_enabled">Printing
+              <span class="check-row"><input id="printing_enabled" name="printing_enabled" type="checkbox" value="true" {% if printing_values.printing_enabled %}checked{% endif %}> Enabled</span>
+              {% if errors.get('printing_enabled') %}<span class="error">{{ errors.get('printing_enabled') }}</span>{% endif %}
+            </label>
+            <label for="printer_backend">Printer backend
+              <select id="printer_backend" name="printer_backend" aria-invalid="{{ 'true' if errors.get('printer_backend') else 'false' }}">
+                {% for value, label in printing_options.backend %}
+                <option value="{{ value }}" {% if printing_values.printer_backend == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+              {% if errors.get('printer_backend') %}<span class="error">{{ errors.get('printer_backend') }}</span>{% endif %}
+            </label>
+            <label for="cups_printer_name">CUPS queue
+              <select id="cups_printer_name" name="cups_printer_name" aria-invalid="{{ 'true' if errors.get('cups_printer_name') else 'false' }}">
+                {% for value, label in printing_options.queue %}
+                <option value="{{ value }}" {% if printing_values.cups_printer_name == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+              {% if errors.get('cups_printer_name') %}<span class="error">{{ errors.get('cups_printer_name') }}</span>{% endif %}
+            </label>
+            <div>
+              <span>Configured queue status</span>
+              <output class="readonly-value">{{ printing_diagnostics.cups.queue_status.value }}</output>
+            </div>
+          </div>
+          {% if printing_diagnostics.cups.error %}<p class="notice error" role="status">{{ printing_diagnostics.cups.error }}</p>{% endif %}
+          {% if printing_diagnostics.cups.unsupported_options %}
+          <p class="notice error" role="status">Unsupported configured CUPS options: {{ printing_diagnostics.cups.unsupported_options|join(', ') }}. Choose values reported by the selected queue before saving.</p>
+          {% endif %}
+
+          <h3>Paper and layout</h3>
+          <div class="fields">
+            <label for="print_page_size">Page size
+              <select id="print_page_size" name="print_page_size">
+                {% for value, label in printing_options.page_size %}
+                <option value="{{ value }}" {% if printing_values.print_page_size == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+              {% if errors.get('print_page_size') %}<span class="error">{{ errors.get('print_page_size') }}</span>{% endif %}
+            </label>
+            <label for="print_image_type">Image type
+              <select id="print_image_type" name="print_image_type">
+                {% for value, label in printing_options.image_type %}
+                <option value="{{ value }}" {% if printing_values.print_image_type == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+              {% if errors.get('print_image_type') %}<span class="error">{{ errors.get('print_image_type') }}</span>{% endif %}
+            </label>
+            <label for="print_resolution">Resolution
+              <select id="print_resolution" name="print_resolution">
+                {% for value, label in printing_options.resolution %}
+                <option value="{{ value }}" {% if printing_values.print_resolution == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+              {% if errors.get('print_resolution') %}<span class="error">{{ errors.get('print_resolution') }}</span>{% endif %}
+            </label>
+            <label for="print_page_fit">Page-fit behavior
+              <select id="print_page_fit" name="print_page_fit">
+                {% for value, label in printing_options.page_fit %}
+                <option value="{{ value }}" {% if printing_values.print_page_fit == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+              {% if errors.get('print_page_fit') %}<span class="error">{{ errors.get('print_page_fit') }}</span>{% endif %}
+            </label>
+            <label for="print_borderless">Borderless
+              <span class="check-row"><input id="print_borderless" name="print_borderless" type="checkbox" value="true" {% if printing_values.print_borderless %}checked{% endif %}> Enabled</span>
+              {% if errors.get('print_borderless') %}<span class="error">{{ errors.get('print_borderless') }}</span>{% endif %}
+            </label>
+          </div>
+
+          <h3>Color</h3>
+          <div class="fields">
+            <label for="print_color_model">Color model
+              <select id="print_color_model" name="print_color_model">
+                {% for value, label in printing_options.color_model %}
+                <option value="{{ value }}" {% if printing_values.print_color_model == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+              {% if errors.get('print_color_model') %}<span class="error">{{ errors.get('print_color_model') }}</span>{% endif %}
+            </label>
+            <label for="print_color_precision">Color precision
+              <select id="print_color_precision" name="print_color_precision">
+                {% for value, label in printing_options.color_precision %}
+                <option value="{{ value }}" {% if printing_values.print_color_precision == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+              {% if errors.get('print_color_precision') %}<span class="error">{{ errors.get('print_color_precision') }}</span>{% endif %}
+            </label>
+            <label for="print_color_correction">Color correction
+              <select id="print_color_correction" name="print_color_correction">
+                {% for value, label in printing_options.color_correction %}
+                <option value="{{ value }}" {% if printing_values.print_color_correction == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+              {% if errors.get('print_color_correction') %}<span class="error">{{ errors.get('print_color_correction') }}</span>{% endif %}
+            </label>
+            <label for="print_legacy_dyesub_gamma">Legacy dye-sub gamma
+              <span class="check-row"><input id="print_legacy_dyesub_gamma" name="print_legacy_dyesub_gamma" type="checkbox" value="true" {% if printing_values.print_legacy_dyesub_gamma %}checked{% endif %}> Enabled</span>
+              {% if errors.get('print_legacy_dyesub_gamma') %}<span class="error">{{ errors.get('print_legacy_dyesub_gamma') }}</span>{% endif %}
+            </label>
+          </div>
+
+          <h3>Color adjustment</h3>
+          <div class="fields">
+            {% for field, label in [('brightness', 'Brightness'), ('contrast', 'Contrast'), ('saturation', 'Saturation'), ('gamma', 'Gamma')] %}
+            {% set field_name = 'print_' ~ field %}
+            <label for="{{ field_name }}">{{ label }}
+              <select id="{{ field_name }}" name="{{ field_name }}">
+                {% for value, option_label in printing_options[field] %}
+                <option value="{{ value }}" {% if printing_values[field_name] == value %}selected{% endif %}>{{ option_label }}</option>
+                {% endfor %}
+              </select>
+              {% if errors.get(field_name) %}<span class="error">{{ errors.get(field_name) }}</span>{% endif %}
+            </label>
+            {% endfor %}
+          </div>
         </fieldset>
 
         <fieldset>
@@ -194,6 +312,20 @@
             <dt>Managed photos</dt><dd>{{ photo_count if photo_count is not none else 'Unavailable' }}</dd>
             <dt>Public base URL</dt><dd>{{ persisted.startup.public_base_url or 'Not configured' }}</dd>
             <dt>Printer backend</dt><dd>{{ printer_name }}</dd>
+            <dt>lp available</dt><dd>{{ 'Yes' if printing_diagnostics.cups.lp_available else 'No' }}</dd>
+            <dt>lpstat available</dt><dd>{{ 'Yes' if printing_diagnostics.cups.lpstat_available else 'No' }}</dd>
+            <dt>lpoptions available</dt><dd>{{ 'Yes' if printing_diagnostics.cups.lpoptions_available else 'No' }}</dd>
+            <dt>Detected queues</dt><dd>{{ printing_diagnostics.cups.queues|join(', ') or 'None' }}</dd>
+            <dt>Queue description</dt><dd>{{ printing_diagnostics.cups.queue_description or 'Not reported' }}</dd>
+            <dt>Detected queue model</dt><dd>{{ printing_diagnostics.cups.queue_model or 'Not reported' }}</dd>
+            <dt>Effective print profile</dt>
+            <dd>{% for option, value in printing_diagnostics.effective_profile.items() %}{{ option }}={{ value }}{% if not loop.last %}; {% endif %}{% endfor %}</dd>
+            {% if printing_diagnostics.latest_result %}
+            <dt>Most recent CUPS job</dt><dd>{{ printing_diagnostics.latest_result.job_id or 'No job ID' }}</dd>
+            <dt>Most recent job status</dt><dd>{{ printing_diagnostics.latest_job_state.value }}</dd>
+            {% if printing_diagnostics.latest_status_error %}<dt>Job status detail</dt><dd>{{ printing_diagnostics.latest_status_error }}</dd>{% endif %}
+            {% endif %}
+            {% if printing_diagnostics.last_submission_error %}<dt>Last submission error</dt><dd>{{ printing_diagnostics.last_submission_error }}</dd>{% endif %}
           </dl>
         </fieldset>
 

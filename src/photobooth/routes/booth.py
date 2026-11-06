@@ -140,11 +140,19 @@ def review(photo_id: str) -> str:
     except GalleryError:
         abort(503)
     print_status = request.args.get("print_status")
-    if print_status not in {"placeholder", "submitted", "error"}:
+    if print_status not in {
+        "placeholder",
+        "submitted",
+        "duplicate",
+        "unknown",
+        "error",
+    }:
         print_status = None
     configuration = cast(
         ApplicationConfig, current_app.extensions["photobooth.configuration"]
     )
+    if print_status is None and not configuration.printing.enabled:
+        print_status = "disabled"
     downloads = cast(DownloadService, current_app.extensions["photobooth.downloads"])
     qr_data_uri: str | None = None
     download_error: str | None = None
@@ -172,6 +180,7 @@ def review(photo_id: str) -> str:
         slideshow_enabled=configuration.booth.slideshow_enabled,
         slideshow_interval_seconds=configuration.booth.slideshow_interval_seconds,
         wifi_network_name=configuration.booth.wifi_network_name,
+        printing_enabled=configuration.printing.enabled,
     )
 
 
@@ -207,7 +216,7 @@ def print_photo(photo_id: str) -> ResponseReturnValue:
     gallery = cast(GalleryService, current_app.extensions["photobooth.gallery"])
     printer = cast(PrinterBackend, current_app.extensions["photobooth.printer"])
     try:
-        print_status = printer.print_photo(gallery.read_photo(photo_id))
+        print_result = printer.print_photo(gallery.read_photo(photo_id), photo_id)
     except PhotoNotFoundError:
         abort(404)
     except (GalleryError, PrintError):
@@ -217,7 +226,7 @@ def print_photo(photo_id: str) -> ResponseReturnValue:
         )
     return redirect(
         url_for(
-            "booth.review", photo_id=photo_id, print_status=print_status.value
+            "booth.review", photo_id=photo_id, print_status=print_result.status.value
         ),
         code=303,
     )
