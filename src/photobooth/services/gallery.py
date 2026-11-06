@@ -136,9 +136,11 @@ class GalleryService:
         """Return slideshow-eligible photos oldest first, excluding unavailable media.
 
         Metadata is the publication marker; each result must also have a
-        readable original and an existing generated thumbnail. A photo deleted
-        while the directory is being scanned is ignored. Timestamps are ordered
-        deterministically with the opaque identifier as a tie-breaker.
+        existing original and generated thumbnail. A photo deleted
+        while the directory is being scanned, or with malformed metadata or
+        incomplete media, is ignored. Timestamps are ordered deterministically
+        with the opaque identifier as a tie-breaker. Direct lookups still
+        report malformed metadata as GalleryMetadataError.
         """
         try:
             metadata_paths = list(self._metadata_directory.glob("*.json"))
@@ -152,7 +154,7 @@ class GalleryService:
                 continue
             try:
                 photo = self.get_photo(photo_id)
-            except PhotoNotFoundError:
+            except (PhotoNotFoundError, GalleryMetadataError, GalleryStorageError):
                 continue
             if self._thumbnail_path(photo_id).is_file():
                 photos.append(photo)

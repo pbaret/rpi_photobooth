@@ -65,7 +65,10 @@
     <main>
       <header>
         <h1>Photobooth administration</h1>
-        <a class="back-link" href="{{ url_for('booth.index') }}">Return to booth</a>
+        <nav class="admin-navigation" aria-label="Administration">
+          <a class="back-link" href="{{ url_for('admin_gallery.gallery') }}">Gallery</a>
+          <a class="back-link" href="{{ url_for('booth.index') }}">Return to booth</a>
+        </nav>
       </header>
 
       {% if saved %}

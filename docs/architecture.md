@@ -192,6 +192,17 @@ Responsible for:
 - printer configuration;
 - diagnostics.
 
+The protected `/admin/gallery` view reuses the configured GalleryService and
+PrintingService. It lists up to 24 newest metadata entries per page and
+references generated thumbnails only; incomplete or malformed individual
+items are omitted without hiding other photos. Delete requests delegate to
+GalleryService, which invalidates metadata, originals, and thumbnails so
+existing download tokens no longer resolve. Reprint requests read the
+full-resolution original and submit it through PrintingService, preserving
+the current printer configuration. Each rendered print form receives a
+fresh idempotency key: retries of that form are deduplicated, while a later
+explicit reprint uses a new key.
+
 Routes are HTTP adapters only.
 
 Routes must not implement:
@@ -233,6 +244,11 @@ Responsible for:
 - selecting slideshow content.
 
 HTTP clients never provide filesystem paths.
+
+The administration gallery uses this metadata-only listing to paginate
+deterministically, then loads each generated thumbnail through the media
+route. It does not read original JPEG bytes until an administrator explicitly
+requests a reprint.
 
 ### DownloadService
 

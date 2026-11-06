@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Galerie - Photobooth administration</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='admin-gallery.css') }}">
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>Galerie</h1>
+          <p>{{ total_photos }} photo{% if total_photos != 1 %}s{% endif %}</p>
+        </div>
+        <nav aria-label="Administration">
+          <a class="navigation-link" href="{{ url_for('admin.administration') }}">Administration</a>
+          <a class="navigation-link" href="{{ url_for('booth.index') }}">Photobooth</a>
+        </nav>
+      </header>
+
+      {% if status %}<p class="notice" role="status" aria-live="polite">{{ status }}</p>{% endif %}
+
+      {% if photos %}
+      <section class="gallery-grid" aria-label="Photos">
+        {% for photo in photos %}
+        <article class="photo-card">
+          <div class="thumbnail-frame">
+            <img src="{{ url_for('media.thumbnail', photo_id=photo.photo_id) }}"
+              alt="Miniature de la photo du {{ photo.captured_at.strftime('%Y-%m-%d %H:%M UTC') }}"
+              onerror="this.hidden=true;this.nextElementSibling.hidden=false">
+            <p class="thumbnail-missing" hidden>Miniature indisponible</p>
+          </div>
+          <p class="capture-date">{{ photo.captured_at.strftime('%Y-%m-%d %H:%M UTC') }}</p>
+          <div class="card-actions">
+            <form action="{{ url_for('admin_gallery.print_photo', photo_id=photo.photo_id) }}" method="post">
+              <input type="hidden" name="page" value="{{ page }}">
+              <input type="hidden" name="idempotency_key" value="{{ print_keys[photo.photo_id] }}">
+              <button type="submit">Imprimer</button>
+            </form>
+            <form action="{{ url_for('admin_gallery.delete_photo', photo_id=photo.photo_id) }}" method="post"
+              onsubmit="return window.confirm('Supprimer définitivement cette photo ?')">
+              <input type="hidden" name="page" value="{{ page }}">
+              <button class="delete-button" type="submit">Supprimer</button>
+            </form>
+          </div>
+        </article>
+        {% endfor %}
+      </section>
+
+      {% if page_count > 1 %}
+      <nav class="pagination" aria-label="Pages de la galerie">
+        {% if page > 1 %}
+        <a class="navigation-link" rel="prev"
+          href="{{ url_for('admin_gallery.gallery', page=page - 1) }}">Précédent</a>
+        {% else %}
+        <span class="navigation-link disabled" aria-disabled="true">Précédent</span>
+        {% endif %}
+        <span>Page {{ page }} sur {{ page_count }}</span>
+        {% if page < page_count %}
+        <a class="navigation-link" rel="next"
+          href="{{ url_for('admin_gallery.gallery', page=page + 1) }}">Suivant</a>
+        {% else %}
+        <span class="navigation-link disabled" aria-disabled="true">Suivant</span>
+        {% endif %}
+      </nav>
+      {% endif %}
+      {% else %}
+      <p class="empty-state">Aucune photo dans la galerie.</p>
+      {% endif %}
+    </main>
+  </body>
+</html>

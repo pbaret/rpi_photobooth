@@ -16,6 +16,7 @@ from photobooth.config import (
 from photobooth.printing import PrinterBackend, PrintingService
 from photobooth.printing.process import PrintProcessRunner
 from photobooth.routes.admin import admin_blueprint
+from photobooth.routes.admin_gallery import admin_gallery_blueprint
 from photobooth.routes.booth import booth_blueprint
 from photobooth.routes.downloads import downloads_blueprint
 from photobooth.routes.media import media_blueprint
@@ -90,6 +91,7 @@ def create_app(
     app.register_blueprint(downloads_blueprint)
     app.register_blueprint(media_blueprint)
     app.register_blueprint(admin_blueprint)
+    app.register_blueprint(admin_gallery_blueprint)
     return app
 
 
